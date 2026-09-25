@@ -199,7 +199,7 @@ button{font-family:inherit;}
 .btn svg{width:14px; height:14px;}
 
 /* ---------- Cards / stats ---------- */
-.grid-stats{display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:20px;}
+.grid-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px;}
 .stat-card{
   background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
   padding:16px 18px; box-shadow:var(--shadow);
@@ -470,7 +470,7 @@ select, .select{
       <div class="grid-stats" id="statCards"></div>
       <div class="panel">
         <div class="panel-title">Активність по місяцях</div>
-        <div class="panel-sub">Ефіри та події, за весь час</div>
+        <div class="panel-sub" id="chartMonthlySub">Ефіри та події, за весь час</div>
         <div class="chart-scroll-wrap">
           <div class="chart-inner" id="chartMonthlyInner">
             <canvas id="chartMonthly"></canvas>
@@ -480,12 +480,12 @@ select, .select{
       <div class="grid-2b">
         <div class="panel">
           <div class="panel-title">Спікери</div>
-          <div class="panel-sub">Усі, за кількістю виступів</div>
+          <div class="panel-sub" id="topGuestsSub">Усі, за кількістю виступів</div>
           <div id="topGuests"></div>
         </div>
         <div class="panel">
           <div class="panel-title">Канали</div>
-          <div class="panel-sub">Усі, за кількістю матеріалів</div>
+          <div class="panel-sub" id="topChannelsSub">Усі, за кількістю матеріалів</div>
           <div id="topChannels"></div>
         </div>
       </div>
@@ -3606,7 +3606,7 @@ const lineValueLabels = {
 let monthlyChart=null;
 let yearlyChart=null;
 let rankExpanded = {guests:false, channels:false};
-let overviewYear = null;
+let overviewYear = null; // a year string, or 'all'
 function renderOverview(){
   const b = DB.broadcasts;
   const done = b.filter(x=>x.status==='done');
@@ -3619,44 +3619,47 @@ function renderOverview(){
   const curMonthKey = now.toISOString().slice(0,7);
   const curYear = String(now.getFullYear());
 
-  // year picker above the stat cards — lets the person look at any year's numbers,
-  // not just the running totals / current year
-  const yearsAvail = Array.from(new Set(done.filter(x=>x.date).map(x=>x.date.slice(0,4)))).sort((a,b)=>b-a);
-  if(!overviewYear || !yearsAvail.includes(overviewYear)){
-    overviewYear = yearsAvail.includes(curYear) ? curYear : (yearsAvail[0] || curYear);
+  // year picker above the stat cards — drives every breakdown on this tab except
+  // "Цього місяця" and "Заплановано", which always track the real current period
+  const yearsAvail = Array.from(new Set([...done.filter(x=>x.date).map(x=>x.date.slice(0,4)), curYear])).sort((a,b)=>b-a);
+  if(!overviewYear || !(overviewYear==='all' || yearsAvail.includes(overviewYear))){
+    overviewYear = curYear;
   }
   const yearSelect = document.getElementById('overviewYearSelect');
-  const yearOptions = yearsAvail.includes(overviewYear) ? yearsAvail : [overviewYear, ...yearsAvail];
-  yearSelect.innerHTML = yearOptions.map(y=>`<option value="${y}"${y===overviewYear?' selected':''}>${y}</option>`).join('');
+  yearSelect.innerHTML = yearsAvail.map(y=>`<option value="${y}"${y===overviewYear?' selected':''}>${y}</option>`).join('')
+    + `<option value="all"${overviewYear==='all'?' selected':''}>Усі роки</option>`;
 
-  const doneYear = done.filter(x=>x.date && x.date.slice(0,4)===overviewYear);
-  const efirYear = doneYear.filter(x=>x.type!=='подія').length;
-  const podiiYear = doneYear.filter(x=>x.type==='подія').length;
-  const eventsYear = b.filter(x=>x.type==='подія' && x.date && x.date.slice(0,4)===overviewYear);
-  const newsworthyYear = eventsYear.filter(ev=>b.some(x=>x.eventId===ev.id)).length;
-  const yearCardLabel = overviewYear===curYear ? 'Цього року' : `За ${overviewYear} рік`;
+  const inYear = x => overviewYear==='all' || (x.date && x.date.slice(0,4)===overviewYear);
+  const doneScope = done.filter(inYear);
+  const recordsScope = b.filter(inYear);
+  const periodLabel = overviewYear==='all' ? 'за весь час' : `за ${overviewYear} рік`;
+
+  const efirScope = doneScope.filter(x=>x.type!=='подія').length;
+  const podiiScope = doneScope.filter(x=>x.type==='подія').length;
+  const eventsScope = b.filter(x=>x.type==='подія' && inYear(x));
+  const newsworthyScope = eventsScope.filter(ev=>b.some(x=>x.eventId===ev.id)).length;
 
   document.getElementById('statCards').innerHTML = `
-    ${statCard('Всього записів', b.length, `${done.length} вийшло · ${plan.length} заплановано`)}
+    ${statCard('Записів', recordsScope.length, `${recordsScope.filter(x=>x.status==='done').length} вийшло · ${recordsScope.filter(x=>x.status==='plan').length} заплановано`)}
     ${statCard('Цього місяця', done.filter(x=>monthKey(x.date)===curMonthKey).length, monthLabel(curMonthKey))}
-    ${statCard(yearCardLabel, doneYear.length, overviewYear)}
-    ${statCard('Унікальних спікерів', new Set(done.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей')}
-    ${statCard('Унікальних каналів', new Set(done.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа')}
+    ${statCard('Унікальних спікерів', new Set(doneScope.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей')}
+    ${statCard('Унікальних каналів', new Set(doneScope.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа')}
     ${statCard('Заплановано', plan.length, 'у роботі, очікують')}
-    ${statCard('Ефірів', efirYear, overviewYear)}
-    ${statCard('Подій', podiiYear, overviewYear)}
-    ${statCard('Інфоприводів', newsworthyYear, `з ${eventsYear.length} ${pluralUA(eventsYear.length,'подія','події','подій')}`)}
+    ${statCard('Ефірів', efirScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
+    ${statCard('Подій', podiiScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
+    ${statCard('Інфоприводів', newsworthyScope, `з ${eventsScope.length} ${pluralUA(eventsScope.length,'подія','події','подій')}`)}
   `;
 
   // monthly chart: only months that actually have a recorded entry — no empty gap-filling,
   // so a new month's bar appears the moment a record for it is added, and any accidental
-  // empty month never shows up as a blank bar.
-  const datedDone = done.filter(x=>x.date);
-  const keys = datedDone.length
-    ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,7)))).sort()
+  // empty month never shows up as a blank bar. Scoped to the selected year.
+  document.getElementById('chartMonthlySub').textContent = `Ефіри та події, ${periodLabel}`;
+  const datedScope = doneScope.filter(x=>x.date);
+  const keys = datedScope.length
+    ? Array.from(new Set(datedScope.map(x=>x.date.slice(0,7)))).sort()
     : [curMonthKey];
-  const efirCounts = keys.map(k=>done.filter(x=>monthKey(x.date)===k && x.type!=='подія').length);
-  const zahidCounts = keys.map(k=>done.filter(x=>monthKey(x.date)===k && x.type==='подія').length);
+  const efirCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type!=='подія').length);
+  const zahidCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='подія').length);
   const labels = keys.map(k=>monthLabel(k));
   const PX_PER_MONTH = 58;
   const inner = document.getElementById('chartMonthlyInner');
@@ -3684,7 +3687,9 @@ function renderOverview(){
     plugins:[stackedBarValueLabels]
   });
 
-  // yearly chart: same idea as monthly, aggregated by calendar year
+  // yearly chart: always shows every year (it's the year-over-year comparison view,
+  // so it stays unaffected by the year picker above)
+  const datedDone = done.filter(x=>x.date);
   const years = datedDone.length ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,4)))).sort() : [];
   const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type!=='подія').length);
   const zahidYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='подія').length);
@@ -3711,8 +3716,10 @@ function renderOverview(){
     plugins:[stackedBarValueLabels]
   });
 
+  document.getElementById('topGuestsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю виступів' : `${overviewYear} рік, за кількістю виступів`;
+  document.getElementById('topChannelsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
   const guestCounts = {}, chanCounts = {};
-  done.forEach(x=>{
+  doneScope.forEach(x=>{
     (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{
       guestCounts[g] = (guestCounts[g]||0)+1;
     });
@@ -3726,7 +3733,7 @@ function renderOverview(){
   renderOverviewNewsworthy();
 }
 function renderOverviewNewsworthy(){
-  const allEvents = DB.broadcasts.filter(b=>b.type==='подія');
+  const allEvents = DB.broadcasts.filter(b=>b.type==='подія' && (overviewYear==='all' || (b.date && b.date.slice(0,4)===overviewYear)));
   const events = allEvents.map(ev=>({ev, linked: DB.broadcasts.filter(b=>b.eventId===ev.id)})).filter(x=>x.linked.length>0);
   document.getElementById('overviewNewsworthySub').textContent =
     `${events.length} ${pluralUA(events.length,'інфопривід','інфоприводи','інфоприводів')} із ${allEvents.length} ${pluralUA(allEvents.length,'подія','події','подій')}`;
