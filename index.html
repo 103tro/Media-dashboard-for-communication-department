@@ -463,6 +463,10 @@ select, .select{
           <div class="page-sub" id="overviewSub">Загальна картина медійної активності бригади</div>
         </div>
       </div>
+      <div class="toolbar">
+        <label for="overviewYearSelect" style="font-size:13px; color:var(--ink-faint);">Рік:</label>
+        <select id="overviewYearSelect"></select>
+      </div>
       <div class="grid-stats" id="statCards"></div>
       <div class="panel">
         <div class="panel-title">Активність по місяцях</div>
@@ -3602,6 +3606,7 @@ const lineValueLabels = {
 let monthlyChart=null;
 let yearlyChart=null;
 let rankExpanded = {guests:false, channels:false};
+let overviewYear = null;
 function renderOverview(){
   const b = DB.broadcasts;
   const done = b.filter(x=>x.status==='done');
@@ -3613,15 +3618,34 @@ function renderOverview(){
   const now = new Date();
   const curMonthKey = now.toISOString().slice(0,7);
   const curYear = String(now.getFullYear());
-  const thisYear = done.filter(x=>x.date && x.date.slice(0,4)===curYear).length;
+
+  // year picker above the stat cards — lets the person look at any year's numbers,
+  // not just the running totals / current year
+  const yearsAvail = Array.from(new Set(done.filter(x=>x.date).map(x=>x.date.slice(0,4)))).sort((a,b)=>b-a);
+  if(!overviewYear || !yearsAvail.includes(overviewYear)){
+    overviewYear = yearsAvail.includes(curYear) ? curYear : (yearsAvail[0] || curYear);
+  }
+  const yearSelect = document.getElementById('overviewYearSelect');
+  const yearOptions = yearsAvail.includes(overviewYear) ? yearsAvail : [overviewYear, ...yearsAvail];
+  yearSelect.innerHTML = yearOptions.map(y=>`<option value="${y}"${y===overviewYear?' selected':''}>${y}</option>`).join('');
+
+  const doneYear = done.filter(x=>x.date && x.date.slice(0,4)===overviewYear);
+  const efirYear = doneYear.filter(x=>x.type!=='подія').length;
+  const podiiYear = doneYear.filter(x=>x.type==='подія').length;
+  const eventsYear = b.filter(x=>x.type==='подія' && x.date && x.date.slice(0,4)===overviewYear);
+  const newsworthyYear = eventsYear.filter(ev=>b.some(x=>x.eventId===ev.id)).length;
+  const yearCardLabel = overviewYear===curYear ? 'Цього року' : `За ${overviewYear} рік`;
 
   document.getElementById('statCards').innerHTML = `
     ${statCard('Всього записів', b.length, `${done.length} вийшло · ${plan.length} заплановано`)}
     ${statCard('Цього місяця', done.filter(x=>monthKey(x.date)===curMonthKey).length, monthLabel(curMonthKey))}
-    ${statCard('Цього року', thisYear, curYear)}
+    ${statCard(yearCardLabel, doneYear.length, overviewYear)}
     ${statCard('Унікальних спікерів', new Set(done.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей')}
     ${statCard('Унікальних каналів', new Set(done.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа')}
     ${statCard('Заплановано', plan.length, 'у роботі, очікують')}
+    ${statCard('Ефірів', efirYear, overviewYear)}
+    ${statCard('Подій', podiiYear, overviewYear)}
+    ${statCard('Інфоприводів', newsworthyYear, `з ${eventsYear.length} ${pluralUA(eventsYear.length,'подія','події','подій')}`)}
   `;
 
   // monthly chart: only months that actually have a recorded entry — no empty gap-filling,
@@ -6716,6 +6740,7 @@ function wireEvents(){
     toggle();
   });
   document.getElementById('broadcastSearch').addEventListener('input', debounce(renderBroadcasts, 120));
+  document.getElementById('overviewYearSelect').addEventListener('change', (e)=>{ overviewYear = e.target.value; renderOverview(); });
   document.getElementById('filterYear').addEventListener('change', renderBroadcasts);
   document.getElementById('filterMonth').addEventListener('change', renderBroadcasts);
   document.getElementById('filterType').addEventListener('change', renderBroadcasts);
