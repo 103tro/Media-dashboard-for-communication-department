@@ -466,7 +466,7 @@ select, .select{
       <div class="grid-stats" id="statCards"></div>
       <div class="panel">
         <div class="panel-title">Активність по місяцях</div>
-        <div class="panel-sub">Ефіри та заходи, за весь час</div>
+        <div class="panel-sub">Ефіри та події, за весь час</div>
         <div class="chart-scroll-wrap">
           <div class="chart-inner" id="chartMonthlyInner">
             <canvas id="chartMonthly"></canvas>
@@ -487,9 +487,19 @@ select, .select{
       </div>
       <div class="panel">
         <div class="panel-title">Активність по роках</div>
-        <div class="panel-sub">Ефіри та заходи, підсумок за кожен рік</div>
+        <div class="panel-sub">Ефіри та події, підсумок за кожен рік</div>
         <div class="chart-inner">
           <canvas id="chartYearly"></canvas>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="media-head" data-collapse-target="overviewNewsworthyBody" style="cursor:pointer; padding:0; margin-bottom:0;">
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+          <div class="panel-title" style="margin:0;">Інфоприводи</div>
+        </div>
+        <div id="overviewNewsworthyBody">
+          <div class="panel-sub" id="overviewNewsworthySub">—</div>
+          <div id="overviewNewsworthyGroups"></div>
         </div>
       </div>
     </section>
@@ -521,9 +531,9 @@ select, .select{
           <div class="pill" data-status="plan">Заплановано</div>
         </div>
         <select id="filterType">
-          <option value="all">Ефіри й заходи</option>
+          <option value="all">Ефіри й події</option>
           <option value="ефір">Тільки ефіри</option>
-          <option value="захід">Тільки заходи</option>
+          <option value="подія">Тільки події</option>
         </select>
         <select id="sortOrder">
           <option value="desc">Спочатку нові</option>
@@ -538,6 +548,7 @@ select, .select{
       <div class="selection-bar hidden" id="broadcastSelectionBar">
         <span id="broadcastSelectionCount">0 обрано</span>
         <button class="btn btn-primary btn-sm" id="exportSelectedBroadcastsBtn" type="button">⭳ Експортувати вибрані</button>
+        <button class="btn btn-ghost btn-sm" id="linkSelectedToEventBtn" type="button">🔗 Пов'язати з подією</button>
         <button class="btn btn-danger btn-sm" id="deleteSelectedBroadcastsBtn" type="button">🗑 Видалити</button>
         <button class="btn btn-ghost btn-sm" id="clearBroadcastSelectionBtn" type="button">Скасувати вибір</button>
       </div>
@@ -1000,7 +1011,7 @@ select, .select{
             <div id="backupStatus" style="margin-top:4px;">—</div>
           </div>
           <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:12px;">
-            <button class="btn" id="exportBtn" type="button">⭳ Завантажити резервну копію (JSON)</button>
+            <button class="btn" id="exportBtn" type="button">⭳ Зберегти резервну копію (JSON)</button>
             <button class="btn btn-ghost" type="button" id="importBtnTrigger">⭱ Відновити з резервної копії</button>
             <input type="file" id="importFile" accept="application/json" style="display:none;">
           </div>
@@ -1072,7 +1083,7 @@ select, .select{
 
 <!-- Modal: broadcast -->
 <div class="modal-backdrop" id="broadcastModal">
-  <div class="modal">
+  <div class="modal" style="max-width:680px;">
     <div class="modal-head">
       <div class="modal-title" id="broadcastModalTitle">Новий запис</div>
       <button class="icon-btn" id="broadcastModalClose" type="button">
@@ -1089,8 +1100,21 @@ select, .select{
       <div class="field-row">
         <div class="field" style="position:relative;"><label>Канал / медіа / подія</label><input type="text" id="f_channel" placeholder="напр. Суспільне Львів" autocomplete="off"><div id="f_channelAutocomplete" class="multi-name-popup hidden"></div></div>
         <div class="field"><label>Тип</label>
-          <select id="f_type"><option value="ефір">Ефір / публікація</option><option value="захід">Захід / зустріч</option></select>
+          <select id="f_type"><option value="ефір">Ефір / публікація</option><option value="подія">Подія / зустріч</option></select>
         </div>
+      </div>
+      <div class="field" id="f_eventLinkWrap" style="position:relative;">
+        <label>Пов'язана подія <span style="font-weight:400; color:var(--ink-faint);">(необов'язково)</span></label>
+        <input type="text" id="f_eventSearch" placeholder="Пошук серед подій — за темою чи датою" autocomplete="off">
+        <input type="hidden" id="f_eventId" value="">
+        <div id="f_eventAutocomplete" class="multi-name-popup hidden"></div>
+      </div>
+      <div class="field" id="f_linkedBroadcastsWrap" style="position:relative; display:none;">
+        <label>Пов'язані ефіри <span style="font-weight:400; color:var(--ink-faint);">(необов'язково)</span></label>
+        <div id="f_linkedBroadcastsHint" class="field-hint" style="display:none;">Спершу збережіть подію — тоді зможете додавати пов'язані ефіри</div>
+        <input type="text" id="f_addBroadcastSearch" placeholder="Пошук серед ефірів — за темою чи каналом" autocomplete="off">
+        <div id="f_addBroadcastAutocomplete" class="multi-name-popup hidden"></div>
+        <div id="f_linkedBroadcastsList" style="margin-top:8px; display:flex; flex-direction:column; gap:6px;"></div>
       </div>
       <div class="field-row">
         <div class="field"><label>Тема</label><input type="text" id="f_topic" placeholder="Коротка назва матеріалу"></div>
@@ -1277,6 +1301,27 @@ select, .select{
 </div>
 
 <!-- Modal: guest info (contact card for a clicked guest name in broadcasts) -->
+<div class="modal-backdrop" id="linkEventModal">
+  <div class="modal" style="max-width:680px;">
+    <div class="modal-head">
+      <div class="modal-title">Пов'язати з подією</div>
+      <button class="icon-btn" id="linkEventClose" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label>Подія</label>
+        <input type="text" id="linkEventSearch" placeholder="Пошук за темою чи датою" autocomplete="off">
+      </div>
+      <div id="linkEventList" style="max-height:340px; overflow-y:auto; display:flex; flex-direction:column; gap:2px;"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="linkEventCancel" type="button">Скасувати</button>
+      <button class="btn btn-primary" id="linkEventConfirm" type="button">Пов'язати</button>
+    </div>
+  </div>
+</div>
 <div class="modal-backdrop" id="guestInfoModal">
   <div class="modal" style="max-width:520px;">
     <div class="modal-head">
@@ -1640,8 +1685,8 @@ const SEED_DATA = {"broadcasts": [], "contacts": [], "channelGroups": {"сусп
 const STORAGE_KEY = 'media_dashboard_v1';
 // bump these two with every shipped version — shown at the bottom of Персоналізація so the
 // person can tell which build they have even if the file itself gets renamed
-const APP_VERSION = 'v60';
-const APP_RELEASE_DATE = '2026-08-27';
+const APP_VERSION = 'v71';
+const APP_RELEASE_DATE = '2026-09-24';
 
 const ICONS = {
   overview:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
@@ -1653,6 +1698,7 @@ const ICONS = {
   enemy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l9 16H3l9-16z"/><path d="M12 9.5v4.5"/><circle cx="12" cy="17" r="0.9" fill="currentColor" stroke="none"/></svg>',
   social:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3l3 3-3 3"/><path d="M20 6H10a5 5 0 000 10h1"/><path d="M7 21l-3-3 3-3"/><path d="M4 18h10a5 5 0 000-10h-1"/></svg>',
   shoots:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+  newsworthy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l18-7-4 18-6-9-8-2z"/><path d="M11 13l-2 7"/></svg>',
 };
 const NAV = [
   {id:'overview', label:'Огляд', icon:ICONS.overview},
@@ -1694,7 +1740,7 @@ const EVENT_CHANNELS = new Set([
   'шептицький будинок воїна','шептицький, палац спорту',
 ]);
 function classifyType(channel){
-  return EVENT_CHANNELS.has((channel||'').trim().toLowerCase()) ? 'захід' : 'ефір';
+  return EVENT_CHANNELS.has((channel||'').trim().toLowerCase()) ? 'подія' : 'ефір';
 }
 
 // channel/media grouping: umbrella labels for near-duplicate or related channel names,
@@ -1720,7 +1766,8 @@ function migrate(db){
   const normalizeDivys = s => (s && /^Дивись\.?\s*[Іі]нфо$/.test(s.trim())) ? 'Дивись.інфо' : s;
   const normalizeBezBroni = s => (s && s.trim() === 'Подкаст "Без броні"') ? 'Без броні' : s;
   db.broadcasts.forEach(b=>{
-    if(!b.type) b.type = classifyType(b.channel);
+    if(!b.type) b.type = 'ефір';
+    if(b.type==='захід') b.type = 'подія';
     b.guest = normalizeGuestField(b.guest);
     b.channel = normalizeBezBroni(normalizeDivys(b.channel));
   });
@@ -2309,7 +2356,7 @@ async function confirmImport(){
       if(!channel && !topic) return;
       const dateVal = mapping.date ? parseImportedDate(r[mapping.date]) : null;
       DB.broadcasts.unshift({
-        id: uid('b'), date: dateVal, status: dateVal ? 'done' : 'plan', type: classifyType(channel),
+        id: uid('b'), date: dateVal, status: dateVal ? 'done' : 'plan', type: 'ефір',
         channel, topic, topicLink: val(r,'topicLink') || linkVal(r,'topic') || null,
         guest: normalizeGuestField(val(r,'guest')), journalist: normalizeGuestField(val(r,'journalist')), note: val(r,'note'), noteLink: linkVal(r,'note'),
         fileLink:null, fileLabel:null, photoLink:null, photoLabel:null,
@@ -2568,7 +2615,7 @@ async function generateReport(type, key){
 
   const guestSet = new Set(doneInPeriod.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean)));
   const channelSet = new Set(doneInPeriod.map(x=>x.channel).filter(Boolean));
-  const zahidCount = doneInPeriod.filter(x=>x.type==='захід').length;
+  const zahidCount = doneInPeriod.filter(x=>x.type==='подія').length;
   const efirCount = doneInPeriod.length - zahidCount;
 
   /* ---------- Slide 1: cover ---------- */
@@ -2615,11 +2662,11 @@ async function generateReport(type, key){
     slide.background = {color:C.cream};
     slide.addText('Динаміка по місяцях', {x:0.7,y:0.5,w:12,h:0.6,fontSize:26,bold:true,color:C.text,fontFace:F});
     const mLabels = monthsInPeriod.map(k=>{ const [y,m]=k.split('-'); return `${MONTHS_UA_SHORT[+m-1]} ${y.slice(2)}`; });
-    const efirByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type!=='захід').length);
-    const zahidByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type==='захід').length);
+    const efirByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type!=='подія').length);
+    const zahidByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type==='подія').length);
     slide.addChart(pptx.ChartType.bar, [
       {name:'Ефіри', labels:mLabels, values:efirByMonth},
-      {name:'Заходи', labels:mLabels, values:zahidByMonth},
+      {name:'Події', labels:mLabels, values:zahidByMonth},
     ], {
       x:0.7, y:1.3, w:11.9, h:5.6,
       barDir:'col', barGrouping:'clustered',
@@ -2658,7 +2705,7 @@ async function generateReport(type, key){
   }
   slide.addText('Ефіри vs заходи', {x:8.4,y:1.1,w:4.2,h:0.4,align:'center',fontSize:13,color:C.muted,fontFace:F});
   slide.addChart(pptx.ChartType.doughnut, [
-    {name:'Тип', labels:['Ефіри','Заходи'], values:[efirCount, zahidCount]}
+    {name:'Тип', labels:['Ефіри','Події'], values:[efirCount, zahidCount]}
   ], {
     x:8.4, y:1.55, w:4.2, h:4.2,
     showTitle:false, showLegend:true, legendPos:'b', legendFontFace:F, legendColor:C.text, legendFontSize:11,
@@ -3034,6 +3081,47 @@ async function generateReport(type, key){
     });
   }
 
+  /* ---------- Slide: Інфоприводи — events that got media pickup within the period ---------- */
+  {
+    const eventsInPeriod = DB.broadcasts.filter(b=>b.type==='подія' && b.date && b.date>=bounds.start && b.date<=bounds.end);
+    const newsworthyInPeriod = eventsInPeriod
+      .map(ev=>({ev, linked: DB.broadcasts.filter(b=>b.eventId===ev.id)}))
+      .filter(x=>x.linked.length>0);
+    if(newsworthyInPeriod.length){
+      slide = pptx.addSlide();
+      slide.background = {color:C.cream};
+      slide.addText('Інфоприводи', {x:0.7,y:0.5,w:12,h:0.6,fontSize:26,bold:true,color:C.text,fontFace:F});
+      slide.addText(`${newsworthyInPeriod.length} з ${eventsInPeriod.length} ${pluralUA(eventsInPeriod.length,'події','подій','подій')} отримали медійний відгук за період — ${bounds.label}`, {x:0.7,y:1.05,w:12,h:0.4,fontSize:13,color:C.muted,fontFace:F});
+      const sorted = newsworthyInPeriod.slice().sort((a,b)=>b.linked.length-a.linked.length);
+      const headOpts = {bold:true, color:C.white, fill:{color:C.dark}, fontFace:F, fontSize:11, valign:'middle'};
+      const rows = [[
+        {text:'Подія', options:{...headOpts, align:'left'}},
+        {text:'Дата', options:{...headOpts, align:'center'}},
+        {text:'Ефірів', options:{...headOpts, align:'center'}},
+      ]];
+      sorted.forEach(x=>{
+        const name = x.ev.topic || x.ev.channel || 'Без назви';
+        const cellOpts = {color:C.text, fontFace:F, fontSize:11, valign:'middle', border:{type:'solid', color:C.tan, pt:0.5}};
+        rows.push([
+          {text:name, options:{...cellOpts, align:'left'}},
+          {text:fmtDate(x.ev.date), options:{...cellOpts, align:'center', color:C.muted}},
+          {text:String(x.linked.length), options:{...cellOpts, align:'center', bold:true}},
+        ]);
+      });
+      // a table paginates itself onto continuation slides when it runs long, so nothing here
+      // needs to cap the row count the way the old chart did
+      slide.addTable(rows, {
+        x:0.7, y:1.65, w:11.9,
+        colW:[8.3, 2.0, 1.6],
+        border:{type:'solid', color:C.tan, pt:0.5},
+        autoPage:true,
+        autoPageRepeatHeader:true,
+        autoPageHeaderRows:1,
+        autoPageSlideStartY:0.7,
+      });
+    }
+  }
+
   /* ---------- Slide 11: shoot tracker (Зйомка) — published work in the period ---------- */
   if(typeof DB.shoots !== 'undefined' && DB.shoots.length && typeof isArchiveStage === 'function'){
     const periodStartM = bounds.start.slice(0,7), periodEndM = bounds.end.slice(0,7);
@@ -3077,8 +3165,47 @@ async function generateReport(type, key){
   }
 
   const fname = `zvit-${bounds.start}_${bounds.end}.pptx`;
-  await pptx.writeFile({fileName:fname});
+  await writePptxWithTableRefFix(pptx, fname);
   showToast('Звіт завантажено');
+}
+// PptxGenJS (through at least v4.0.1) writes a stray apostrophe onto the end of the cell-range
+// "ref" attribute in every embedded chart-data workbook's table definition — e.g.
+// ref="A1:C10'" instead of ref="A1:C10". The extra character sits inside a normal XML
+// attribute, so it's syntactically well-formed and passes schema validation, but real
+// PowerPoint's stricter reference-syntax parser rejects it and silently discards the
+// affected chart data during its "repair" pass. This unzips the generated file (JSZip ships
+// inside the pptxgenjs bundle, exposed as window.JSZip), reaches into every embedded
+// worksheet, strips exactly that trailing quote from the ref attribute, and re-zips before
+// the actual download — the fix belongs at the file level since the defect is in the
+// library's own writer, not in anything this app tells it to draw.
+async function writePptxWithTableRefFix(pptx, fname){
+  const buf = await pptx.write('arraybuffer');
+  if(typeof JSZip === 'undefined'){
+    // JSZip didn't load for some reason — fall back to the unfixed file rather than failing outright
+    await pptx.writeFile({fileName:fname});
+    return;
+  }
+  const outerZip = await JSZip.loadAsync(buf);
+  const embeddingPaths = Object.keys(outerZip.files).filter(p=>/^ppt\/embeddings\/.*\.xlsx$/.test(p));
+  for(const path of embeddingPaths){
+    const embedBuf = await outerZip.file(path).async('arraybuffer');
+    const innerZip = await JSZip.loadAsync(embedBuf);
+    const tablePath = 'xl/tables/table1.xml';
+    const tableFile = innerZip.file(tablePath);
+    if(!tableFile) continue;
+    const tableXml = await tableFile.async('string');
+    const fixedXml = tableXml.replace(/ref="([^"]*)'"/, 'ref="$1"');
+    if(fixedXml === tableXml) continue;
+    innerZip.file(tablePath, fixedXml);
+    const fixedEmbedBuf = await innerZip.generateAsync({type:'arraybuffer'});
+    outerZip.file(path, fixedEmbedBuf);
+  }
+  const outBuf = await outerZip.generateAsync({type:'blob'});
+  const url = URL.createObjectURL(outBuf);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
 function updateStorageStatusUI(){
   const el = document.getElementById('storageStatus');
@@ -3504,8 +3631,8 @@ function renderOverview(){
   const keys = datedDone.length
     ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,7)))).sort()
     : [curMonthKey];
-  const efirCounts = keys.map(k=>done.filter(x=>monthKey(x.date)===k && x.type!=='захід').length);
-  const zahidCounts = keys.map(k=>done.filter(x=>monthKey(x.date)===k && x.type==='захід').length);
+  const efirCounts = keys.map(k=>done.filter(x=>monthKey(x.date)===k && x.type!=='подія').length);
+  const zahidCounts = keys.map(k=>done.filter(x=>monthKey(x.date)===k && x.type==='подія').length);
   const labels = keys.map(k=>monthLabel(k));
   const PX_PER_MONTH = 58;
   const inner = document.getElementById('chartMonthlyInner');
@@ -3517,7 +3644,7 @@ function renderOverview(){
     type:'bar',
     data:{ labels, datasets:[
       { label:'Ефіри', data:efirCounts, backgroundColor:'#A2762C', borderRadius:4, maxBarThickness:30, stack:'s' },
-      { label:'Заходи', data:zahidCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:30, stack:'s' },
+      { label:'Події', data:zahidCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:30, stack:'s' },
     ]},
     options:{
       maintainAspectRatio:false,
@@ -3535,8 +3662,8 @@ function renderOverview(){
 
   // yearly chart: same idea as monthly, aggregated by calendar year
   const years = datedDone.length ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,4)))).sort() : [];
-  const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type!=='захід').length);
-  const zahidYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='захід').length);
+  const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type!=='подія').length);
+  const zahidYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='подія').length);
   const yctx = document.getElementById('chartYearly').getContext('2d');
   if(yearlyChart) yearlyChart.destroy();
   const yearlyTotals = years.map((y,i)=>efirYearCounts[i]+zahidYearCounts[i]);
@@ -3544,7 +3671,7 @@ function renderOverview(){
     type:'bar',
     data:{ labels:years, datasets:[
       { label:'Ефіри', data:efirYearCounts, backgroundColor:'#A2762C', borderRadius:4, maxBarThickness:70, stack:'s' },
-      { label:'Заходи', data:zahidYearCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:70, stack:'s' },
+      { label:'Події', data:zahidYearCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:70, stack:'s' },
     ]},
     options:{
       maintainAspectRatio:false,
@@ -3572,6 +3699,55 @@ function renderOverview(){
   });
   renderRankPanel('topGuests', guestCounts, 'guests');
   renderRankPanel('topChannels', chanCounts, 'channels');
+  renderOverviewNewsworthy();
+}
+function renderOverviewNewsworthy(){
+  const allEvents = DB.broadcasts.filter(b=>b.type==='подія');
+  const events = allEvents.map(ev=>({ev, linked: DB.broadcasts.filter(b=>b.eventId===ev.id)})).filter(x=>x.linked.length>0);
+  document.getElementById('overviewNewsworthySub').textContent =
+    `${events.length} ${pluralUA(events.length,'інфопривід','інфоприводи','інфоприводів')} із ${allEvents.length} ${pluralUA(allEvents.length,'подія','події','подій')}`;
+
+  const groups = new Map();
+  events.forEach(x=>{
+    const key = x.ev.date ? x.ev.date.slice(0,7) : '__nodate__';
+    if(!groups.has(key)){
+      const label = key==='__nodate__' ? 'Без дати' : (()=>{ const [y,m]=key.split('-'); return `${MONTHS_UA_FULL[parseInt(m,10)-1]} ${y}`; })();
+      groups.set(key, {key, label, items:[]});
+    }
+    groups.get(key).items.push(x);
+  });
+  groups.forEach(g=>g.items.sort((a,b)=>(b.ev.date||'').localeCompare(a.ev.date||'')));
+  const groupArr = Array.from(groups.values()).sort((a,b)=>b.key.localeCompare(a.key));
+
+  const container = document.getElementById('overviewNewsworthyGroups');
+  container.innerHTML = groupArr.map(g=>{
+    const collapsed = !expandedNewsworthyMonths.has(g.key);
+    return `<div class="media-group">
+      <div class="media-head ${collapsed?'collapsed':''}" data-month="${attr(g.key)}" style="background:var(--brass-bg); border-radius:8px;">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+        <div class="media-name">${esc(g.label)}</div>
+        <span class="media-badge">${g.items.length}</span>
+      </div>
+      <div class="media-body ${collapsed?'hidden':''}">
+        ${g.items.map(x=>newsworthyRowHtml(x.ev, x.linked)).join('')}
+      </div>
+    </div>`;
+  }).join('');
+
+  container.querySelectorAll('.media-head').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const k = el.dataset.month;
+      if(expandedNewsworthyMonths.has(k)) expandedNewsworthyMonths.delete(k); else expandedNewsworthyMonths.add(k);
+      renderOverviewNewsworthy();
+    });
+  });
+  container.querySelectorAll('[data-toggle-event]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const id = el.dataset.toggleEvent;
+      if(expandedNewsworthyEvents.has(id)) expandedNewsworthyEvents.delete(id); else expandedNewsworthyEvents.add(id);
+      renderOverviewNewsworthy();
+    });
+  });
 }
 function statCard(label,val,sub){
   return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">${val}</div><div class="stat-sub">${sub}</div></div>`;
@@ -3723,7 +3899,7 @@ function broadcastRowHtml(x){
   return `<tr data-id="${x.id}">
       <td><input type="checkbox" class="row-select" data-select-id="${x.id}" ${selectedBroadcastIds.has(x.id)?'checked':''}></td>
       <td class="cell-date">${x.status==='plan' ? '—' : fmtDate(x.date)}</td>
-      <td>${x.channel?`<span class="channel-link" data-channel="${attr(x.channel)}">${esc(x.channel)}</span>`:'—'}${x.type==='захід'?'<div class="cell-note">захід</div>':''}</td>
+      <td>${x.channel?`<span class="channel-link" data-channel="${attr(x.channel)}">${esc(x.channel)}</span>`:'—'}${x.type==='подія'?'<div class="cell-note">подія</div>':''}</td>
       <td class="cell-topic">
         ${x.topicLink ? `<a href="${attr(x.topicLink)}" target="_blank" rel="noopener">${esc(x.topic)||'(без назви)'}</a>` : `${esc(x.topic)||'—'}`}
         ${x.note ? `<div class="cell-note">${esc(x.note)}</div>` : ''}
@@ -3851,7 +4027,7 @@ const iconTrash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
    ================================================================== */
 const collapsedPanels = new Set([
   'socialViewsBody','socialSubsBody','socialPostsBody','socialGrowthBody','socialCompareBody',
-  'enemyDynamicsBody','enemyChannelsBody','kanbanBoardBody','shootsStatsBody',
+  'enemyDynamicsBody','enemyChannelsBody','kanbanBoardBody','shootsStatsBody','overviewNewsworthyBody',
 ]);
 function isPanelCollapsed(bodyId){ return collapsedPanels.has(bodyId); }
 function applyCollapseVisuals(){
@@ -3884,6 +4060,10 @@ function openBroadcastModal(id){
   document.getElementById('f_status').value = x ? x.status : 'done';
   document.getElementById('f_type').value = x ? (x.type||'ефір') : 'ефір';
   document.getElementById('f_channel').value = x ? x.channel : '';
+  const linkedEvent = x && x.eventId ? DB.broadcasts.find(b=>b.id===x.eventId) : null;
+  document.getElementById('f_eventSearch').value = linkedEvent ? eventPickLabel(linkedEvent) : '';
+  document.getElementById('f_eventId').value = linkedEvent ? linkedEvent.id : '';
+  updateEventLinkFieldsVisibility();
   document.getElementById('f_topic').value = x ? x.topic : '';
   document.getElementById('f_topicLink').value = x ? (x.topicLink||'') : '';
   document.getElementById('f_guest').value = x ? x.guest : '';
@@ -3904,6 +4084,7 @@ async function saveBroadcast(){
     status: document.getElementById('f_status').value,
     type: document.getElementById('f_type').value,
     channel: document.getElementById('f_channel').value.trim(),
+    eventId: document.getElementById('f_eventId').value || null,
     topic: document.getElementById('f_topic').value.trim(),
     topicLink: document.getElementById('f_topicLink').value.trim() || null,
     guest: normalizeGuestField(document.getElementById('f_guest').value.trim()),
@@ -3952,12 +4133,17 @@ function buildGuestIndex(){
 }
 function buildUnitIndex(){
   const idx = {};
+  // established units — anything already used as someone's "Підрозділ" — so a guest entry
+  // that names the unit itself directly ("4 батальйон"), not a specific person, still counts
+  const knownUnits = Array.from(new Set(DB.militaryContacts.map(c=>(c.unit||'').trim()).filter(Boolean)));
   DB.broadcasts.filter(x=>x.status==='done').forEach(x=>{
     const names = (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean);
     const units = new Set();
     names.forEach(n=>{
       const contact = findMilitaryContactByName(n);
-      if(contact && contact.unit) units.add(contact.unit.trim());
+      if(contact && contact.unit){ units.add(contact.unit.trim()); return; }
+      const directUnit = knownUnits.find(u=>textsMatch(n, u) || textsMatch(u, n));
+      if(directUnit) units.add(directUnit);
     });
     units.forEach(u=>{
       idx[u] = idx[u] || [];
@@ -3992,7 +4178,10 @@ function renderCrosstab(){
   const keys = Object.keys(idx).sort((a,b)=>idx[b].length-idx[a].length || a.localeCompare(b,'uk'));
   const sel = document.getElementById('crosstabSelect');
   const prev = sel.value;
-  sel.innerHTML = keys.map(k=>`<option value="${attr(k)}">${esc(k)} (${idx[k].length})</option>`).join('');
+  sel.innerHTML = keys.map(k=>{
+    const unresolved = crosstabMode==='guest' && !findMilitaryContactByName(k) && !findJournalistByName(k);
+    return `<option value="${attr(k)}">${esc(k)} (${idx[k].length})${unresolved?' · не в контактах':''}</option>`;
+  }).join('');
   if(keys.includes(prev)) sel.value = prev;
   renderCrosstabResults(idx);
   sel.onchange = ()=>renderCrosstabResults(idx);
@@ -4322,9 +4511,9 @@ function renderContacts(){
   if(f.region!=='all') list = list.filter(c=>c.region===f.region);
   if(f.q){
     list = list.filter(c=>{
-      const fields = [c.media,c.name,c.phone,c.email,c.position,c.cooperation,c.note];
+      const fields = [c.media,c.name,c.email,c.position,c.cooperation,c.note];
       const projTexts = (c.projects||[]).map(p=>p.name);
-      return fields.concat(projTexts).some(v=>textsMatch(f.q, v));
+      return fields.concat(projTexts).some(v=>textsMatch(f.q, v)) || phoneMatches(f.q, c.phone);
     });
   }
   const totalMediaCount = new Set(DB.contacts.map(c=>c.media).filter(Boolean)).size;
@@ -4543,7 +4732,7 @@ function renderMilitaryContacts(){
   const f = getMilitaryFilters();
   let list = DB.militaryContacts.slice();
   if(f.q){
-    list = list.filter(c=>[c.name,c.unit,c.subunit,c.callsign,c.phone,c.email,c.position,c.note].some(v=>textsMatch(f.q, v)));
+    list = list.filter(c=>[c.name,c.unit,c.subunit,c.callsign,c.email,c.position,c.note].some(v=>textsMatch(f.q, v)) || phoneMatches(f.q, c.phone));
   }
   const totalUnits = new Set(DB.militaryContacts.map(c=>c.unit).filter(Boolean)).size;
   document.getElementById('militarySub').textContent = `${totalUnits} підрозділів · ${DB.militaryContacts.length} контактів у базі · показано ${list.length}`;
@@ -4739,6 +4928,66 @@ function getEnemyFilters(){
     q:(document.getElementById('enemySearch').value||'').toLowerCase().trim(),
     sort: document.getElementById('enemySortOrder').value,
   };
+}
+// standard Ukrainian plural-form selection by count (1 → one, 2-4 → few, else → many),
+// with the 11-14 exception that keeps double-digit teens in the "many" bucket
+function pluralUA(n, one, few, many){
+  const mod10 = n % 10, mod100 = n % 100;
+  if(mod10===1 && mod100!==11) return one;
+  if(mod10>=2 && mod10<=4 && !(mod100>=12 && mod100<=14)) return few;
+  return many;
+}
+let expandedNewsworthyMonths = new Set();
+let expandedNewsworthyEvents = new Set();
+// day-by-day "before/after" chart for one Подія — only days that actually have a linked
+// mention get a column (plus the event's own day, always, even with zero mentions that day),
+// with empty days in between simply skipped rather than drawn as blank space — coverage in
+// practice tends to cluster in bursts with long gaps, so a literal calendar axis would mostly
+// be empty air
+function eventDailyChartSvg(ev, linked){
+  const countsByDay = {};
+  linked.forEach(b=>{ if(b.date) countsByDay[b.date] = (countsByDay[b.date]||0) + 1; });
+  const daySet = new Set(Object.keys(countsByDay));
+  if(ev.date) daySet.add(ev.date);
+  const days = Array.from(daySet).sort();
+  if(!days.length) return '<div class="field-hint">Немає дат для побудови графіка</div>';
+  const counts = days.map(day => countsByDay[day] || 0);
+  const maxCount = Math.max(...counts, 1);
+  const barW = 26, gap = 8, padL = 8, padTop = 16, chartH = 56, labelH = 20;
+  const totalW = days.length*(barW+gap) + padL;
+  const totalH = padTop + chartH + labelH;
+  const bars = days.map((day,i)=>{
+    const x = padL + i*(barW+gap);
+    const cx = x + barW/2;
+    const h = Math.round((counts[i]/maxCount) * chartH);
+    const y = padTop + (chartH - h);
+    const isEventDay = day === ev.date;
+    const [yy,mm,dd] = day.split('-');
+    return `${isEventDay ? `<line x1="${cx}" y1="${padTop-8}" x2="${cx}" y2="${padTop+chartH+3}" stroke="#B5654A" stroke-width="3" stroke-linecap="round"/>` : ''}${counts[i]>0 ? `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,3)}" rx="2" fill="${isEventDay?'#B5654A':'#A2762C'}"/><text x="${cx}" y="${y-4}" font-size="10" text-anchor="middle" fill="#6b6558">${counts[i]}</text>` : ''}<text x="${cx}" y="${padTop+chartH+15}" font-size="9" text-anchor="middle" fill="#948d7d">${dd}.${mm}</text>`;
+  }).join('');
+  return `<div class="chart-scroll-wrap"><svg viewBox="0 0 ${totalW} ${totalH}" width="${totalW}" height="${totalH}" style="display:block;">${bars}</svg></div>`;
+}
+function newsworthyRowHtml(ev, linked){
+  const expanded = expandedNewsworthyEvents.has(ev.id);
+  return `<div class="contact-row" style="flex-direction:column; align-items:stretch; padding:11px 16px 11px 16px; cursor:pointer;" data-toggle-event="${attr(ev.id)}">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <svg class="chevron" style="width:16px; height:16px; flex:none; transform:rotate(${expanded?'0':'-90'}deg); transition:transform .15s;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+      <div style="flex:1; font-weight:400;">${esc(ev.topic || ev.channel || 'Без назви')}${ev.topic && ev.channel ? ` <span style="font-weight:400; color:var(--ink-faint);">(${esc(ev.channel)})</span>` : ''}</div>
+      <div style="color:var(--ink-faint); font-size:12.5px;">${fmtDate(ev.date)}</div>
+      <span class="media-badge">${linked.length} ${pluralUA(linked.length, 'ефір','ефіри','ефірів')}</span>
+    </div>
+    ${expanded ? `<div style="margin:10px 0 0 26px; display:flex; flex-direction:column; gap:10px;">
+      ${eventDailyChartSvg(ev, linked)}
+      <div style="display:flex; flex-direction:column; gap:6px;">
+      ${linked.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(b=>`
+        <div style="font-size:13px; display:flex; gap:10px; align-items:baseline;">
+          <span style="color:var(--ink-faint); font-family:var(--font-mono); font-size:11.5px; min-width:72px;">${fmtDate(b.date)}</span>
+          <span>${esc(b.channel)||'—'}</span>
+          ${b.topic ? `<span style="color:var(--ink-faint);">· ${esc(b.topic)}</span>` : ''}
+        </div>`).join('')}
+      </div>
+    </div>` : ''}
+  </div>`;
 }
 function renderEnemyMentions(){
   const f = getEnemyFilters();
@@ -6026,6 +6275,13 @@ function textsMatch(query, field){
   const fVariants = textSearchVariants(field);
   return fVariants.some(fv => qVariants.some(qv => qv && fv.includes(qv)));
 }
+// strips everything but digits, so "+380 67 123-45-67", "0671234567" and "067 123 4567"
+// all compare equal regardless of how each was actually typed in
+function digitsOnly(s){ return (s||'').replace(/\D/g,''); }
+function phoneMatches(query, phone){
+  const qd = digitsOnly(query), pd = digitsOnly(phone);
+  return qd.length>=3 && pd.includes(qd);
+}
 function contactNameLinksHtml(text, extraClass){
   if(!text) return '';
   return text.split(',').map(s=>s.trim()).filter(Boolean)
@@ -6038,6 +6294,146 @@ function contactNameLinksHtml(text, extraClass){
 // same idea, but for inputs that get regenerated on every re-render (like one row per
 // channel) — listens on a stable parent via delegation, so it keeps working after the
 // rows are rebuilt, and shares one floating popup positioned under whichever input is active
+// label shown for a "подія" record when picking it as a link target — name plus date,
+// since two events can easily share a similar title
+// label for a Ефір when picking it to link to a Подія — topic first (that's the meaningful
+// part), channel as context, same spirit as eventPickLabel
+function broadcastPickLabel(b){
+  const name = b.topic || b.channel || 'Без назви';
+  const extra = b.topic && b.channel ? ` (${b.channel})` : '';
+  return `${name}${extra} · ${fmtDate(b.date)}`;
+}
+// a Подія links to ефіри (searching among broadcasts, adding/removing the eventId on each);
+// a Ефір links to one подія (searching among events) — same underlying relationship, just
+// entered from whichever side the person is editing right now
+function updateEventLinkFieldsVisibility(){
+  const type = document.getElementById('f_type').value;
+  const isEvent = type==='подія';
+  document.getElementById('f_eventLinkWrap').style.display = isEvent ? 'none' : '';
+  document.getElementById('f_linkedBroadcastsWrap').style.display = isEvent ? '' : 'none';
+  if(isEvent){
+    const hasId = !!editingBroadcastId;
+    document.getElementById('f_linkedBroadcastsHint').style.display = hasId ? 'none' : '';
+    document.getElementById('f_addBroadcastSearch').style.display = hasId ? '' : 'none';
+    renderLinkedBroadcastsList();
+  }
+}
+function renderLinkedBroadcastsList(){
+  const list = document.getElementById('f_linkedBroadcastsList');
+  if(!editingBroadcastId){ list.innerHTML = ''; return; }
+  const linked = DB.broadcasts.filter(b=>b.eventId===editingBroadcastId);
+  list.innerHTML = linked.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||'')).map(b=>`
+    <div style="display:flex; align-items:center; gap:8px; font-size:13px;">
+      <span style="color:var(--ink-faint); font-family:var(--font-mono); font-size:11.5px; min-width:72px;">${fmtDate(b.date)}</span>
+      <span style="flex:1;">${esc(b.topic || b.channel || 'Без назви')}${b.topic && b.channel ? ` <span style="color:var(--ink-faint);">(${esc(b.channel)})</span>` : ''}</span>
+      <button type="button" class="icon-btn" data-unlink-broadcast="${attr(b.id)}" title="Прибрати зв'язок">${iconTrash}</button>
+    </div>`).join('') || `<div class="field-hint">Ще жодного ефіру не пов'язано</div>`;
+  list.querySelectorAll('[data-unlink-broadcast]').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const b = DB.broadcasts.find(x=>x.id===btn.dataset.unlinkBroadcast);
+      if(b) b.eventId = null;
+      await saveDB(true);
+      renderLinkedBroadcastsList();
+      renderBroadcasts(); renderOverview();
+    });
+  });
+}
+function wireAddBroadcastToEventPicker(){
+  const input = document.getElementById('f_addBroadcastSearch');
+  const popup = document.getElementById('f_addBroadcastAutocomplete');
+  let activeIndex = -1;
+  function candidates(){
+    return DB.broadcasts.filter(b=>b.type!=='подія' && b.eventId!==editingBroadcastId && b.id!==editingBroadcastId);
+  }
+  async function pick(b){
+    b.eventId = editingBroadcastId;
+    await saveDB(true);
+    input.value = '';
+    popup.classList.add('hidden'); popup.innerHTML = '';
+    renderLinkedBroadcastsList();
+    renderBroadcasts(); renderOverview();
+  }
+  function highlight(){ popup.querySelectorAll('.multi-name-option').forEach((el,i)=>el.classList.toggle('active', i===activeIndex)); }
+  function currentMatches(){
+    const q = input.value.trim();
+    if(!q) return [];
+    return candidates().filter(b=>textsMatch(q, b.topic) || textsMatch(q, b.channel)).slice(0,8);
+  }
+  function render(){
+    activeIndex = -1;
+    const matches = currentMatches();
+    if(!matches.length){ popup.classList.add('hidden'); popup.innerHTML=''; return; }
+    popup.innerHTML = matches.map(b=>`<div class="multi-name-option" data-id="${attr(b.id)}">${esc(broadcastPickLabel(b))}</div>`).join('');
+    popup.classList.remove('hidden');
+    popup.querySelectorAll('.multi-name-option').forEach((el,i)=>{
+      el.addEventListener('mousedown', (e)=>{ e.preventDefault(); pick(matches[i]); });
+    });
+  }
+  input.addEventListener('input', render);
+  input.addEventListener('focus', render);
+  input.addEventListener('blur', ()=>{ setTimeout(()=>{ popup.classList.add('hidden'); popup.innerHTML=''; }, 150); });
+  input.addEventListener('keydown', (e)=>{
+    if(popup.classList.contains('hidden')) return;
+    const options = Array.from(popup.querySelectorAll('.multi-name-option'));
+    if(!options.length) return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); activeIndex=(activeIndex+1)%options.length; highlight(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); activeIndex=(activeIndex-1+options.length)%options.length; highlight(); }
+    else if(e.key==='Enter'){ if(activeIndex>=0){ e.preventDefault(); const matches=currentMatches(); pick(matches[activeIndex]); } }
+    else if(e.key==='Escape'){ popup.classList.add('hidden'); popup.innerHTML=''; }
+  });
+}
+function eventPickLabel(ev){
+  const name = ev.topic || ev.channel || 'Без назви';
+  const extra = ev.topic && ev.channel ? ` (${ev.channel})` : '';
+  return `${name}${extra} · ${fmtDate(ev.date)}`;
+}
+// unlike wireMultiNameAutocomplete (which matches and stores the same text), picking an
+// event needs to SAVE an id while DISPLAYING a human label — so it keeps its own hidden
+// field for the real value, only using the visible input as the search/display surface
+function wireEventPicker(searchInputId, hiddenInputId, popupId, excludeIdFn){
+  const input = document.getElementById(searchInputId);
+  const hidden = document.getElementById(hiddenInputId);
+  const popup = document.getElementById(popupId);
+  if(!input || !hidden || !popup) return;
+  let activeIndex = -1;
+  function candidates(){
+    const excludeId = excludeIdFn();
+    return DB.broadcasts.filter(b=>b.type==='подія' && b.id!==excludeId);
+  }
+  function pick(ev){
+    input.value = eventPickLabel(ev);
+    hidden.value = ev.id;
+    popup.classList.add('hidden');
+    popup.innerHTML = '';
+  }
+  function highlight(){
+    popup.querySelectorAll('.multi-name-option').forEach((el,i)=>el.classList.toggle('active', i===activeIndex));
+  }
+  function render(){
+    activeIndex = -1;
+    const q = input.value.trim();
+    if(!q){ popup.classList.add('hidden'); popup.innerHTML=''; return; }
+    const matches = candidates().filter(ev=>textsMatch(q, ev.topic) || (ev.date||'').includes(q)).slice(0,8);
+    if(!matches.length){ popup.classList.add('hidden'); popup.innerHTML=''; return; }
+    popup.innerHTML = matches.map(ev=>`<div class="multi-name-option" data-id="${attr(ev.id)}">${esc(eventPickLabel(ev))}</div>`).join('');
+    popup.classList.remove('hidden');
+    popup.querySelectorAll('.multi-name-option').forEach((el,i)=>{
+      el.addEventListener('mousedown', (e)=>{ e.preventDefault(); pick(matches[i]); });
+    });
+  }
+  input.addEventListener('input', ()=>{ hidden.value=''; render(); });
+  input.addEventListener('focus', render);
+  input.addEventListener('blur', ()=>{ setTimeout(()=>{ popup.classList.add('hidden'); popup.innerHTML=''; }, 150); });
+  input.addEventListener('keydown', (e)=>{
+    if(popup.classList.contains('hidden')) return;
+    const options = Array.from(popup.querySelectorAll('.multi-name-option'));
+    if(!options.length) return;
+    if(e.key==='ArrowDown'){ e.preventDefault(); activeIndex=(activeIndex+1)%options.length; highlight(); }
+    else if(e.key==='ArrowUp'){ e.preventDefault(); activeIndex=(activeIndex-1+options.length)%options.length; highlight(); }
+    else if(e.key==='Enter'){ if(activeIndex>=0){ e.preventDefault(); const q=input.value.trim(); const matches=candidates().filter(ev=>textsMatch(q, ev.topic) || (ev.date||'').includes(q)).slice(0,8); pick(matches[activeIndex]); } }
+    else if(e.key==='Escape'){ popup.classList.add('hidden'); popup.innerHTML=''; }
+  });
+}
 function wireDelegatedAutocomplete(containerId, inputSelector, getOptionsFn, multiValue){
   const container = document.getElementById(containerId);
   if(!container) return;
@@ -6267,6 +6663,41 @@ function openGuestInfoModal(name){
   document.getElementById('guestInfoModal').classList.add('open');
 }
 function closeGuestInfoModal(){ document.getElementById('guestInfoModal').classList.remove('open'); }
+let linkEventSelectedId = null;
+function renderLinkEventList(){
+  const q = document.getElementById('linkEventSearch').value.trim();
+  const list = document.getElementById('linkEventList');
+  const events = DB.broadcasts.filter(b=>b.type==='подія')
+    .filter(ev=>!q || textsMatch(q, ev.topic) || (ev.date||'').includes(q))
+    .sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  if(!events.length){ list.innerHTML = '<div class="field-hint">Нічого не знайдено</div>'; return; }
+  list.innerHTML = events.map(ev=>`
+    <div class="link-event-item" data-id="${attr(ev.id)}" style="padding:9px 10px; border-radius:6px; cursor:pointer; font-size:13.5px; ${ev.id===linkEventSelectedId?'background:var(--brass-bg); font-weight:600;':''}">
+      ${esc(eventPickLabel(ev))}
+    </div>`).join('');
+  list.querySelectorAll('[data-id]').forEach(el=>{
+    el.addEventListener('click', ()=>{ linkEventSelectedId = el.dataset.id; renderLinkEventList(); });
+  });
+}
+function openLinkEventModal(){
+  document.getElementById('linkEventSearch').value = '';
+  linkEventSelectedId = null;
+  renderLinkEventList();
+  document.getElementById('linkEventModal').classList.add('open');
+}
+function closeLinkEventModal(){ document.getElementById('linkEventModal').classList.remove('open'); }
+async function confirmLinkSelectedToEvent(){
+  const eventId = linkEventSelectedId;
+  if(!eventId){ showToast('Спершу оберіть подію зі списку'); return; }
+  selectedBroadcastIds.forEach(id=>{
+    const b = DB.broadcasts.find(x=>x.id===id);
+    if(b && b.id!==eventId) b.eventId = eventId;
+  });
+  closeLinkEventModal();
+  selectedBroadcastIds.clear();
+  await saveDB(true);
+  renderBroadcasts(); renderOverview();
+}
 
 /* ==================================================================
    EVENTS / INIT
@@ -6410,6 +6841,9 @@ function wireEvents(){
     const media = DB.contacts.map(c=>c.media).filter(Boolean);
     return Array.from(new Set([...channels, ...media])).map(ch=>({value:ch, label:ch}));
   }); // single value — no comma-splitting needed
+  wireEventPicker('f_eventSearch', 'f_eventId', 'f_eventAutocomplete', ()=>editingBroadcastId);
+  wireAddBroadcastToEventPicker();
+  document.getElementById('f_type').addEventListener('change', updateEventLinkFieldsVisibility);
   wireMultiNameAutocomplete('c_media', 'c_mediaAutocomplete', ()=>
     Array.from(new Set(DB.contacts.map(x=>x.media).filter(Boolean))).map(m=>({value:m, label:m}))
   ); // single value
@@ -6545,6 +6979,15 @@ function wireEvents(){
     renderNav(); renderBroadcasts(); renderCrosstab(); renderOverview();
   });
   document.getElementById('selectAllBroadcastsBtn').addEventListener('click', ()=>selectAllVisible('row-select', selectedBroadcastIds, updateBroadcastSelectionBar));
+  document.getElementById('linkSelectedToEventBtn').addEventListener('click', ()=>{
+    if(!selectedBroadcastIds.size) return;
+    openLinkEventModal();
+  });
+  document.getElementById('linkEventClose').addEventListener('click', closeLinkEventModal);
+  document.getElementById('linkEventCancel').addEventListener('click', closeLinkEventModal);
+  wireBackdropClose('linkEventModal', closeLinkEventModal);
+  document.getElementById('linkEventConfirm').addEventListener('click', confirmLinkSelectedToEvent);
+  document.getElementById('linkEventSearch').addEventListener('input', renderLinkEventList);
   document.getElementById('clearBroadcastSelectionBtn').addEventListener('click', ()=>{
     selectedBroadcastIds.clear();
     renderBroadcasts();
