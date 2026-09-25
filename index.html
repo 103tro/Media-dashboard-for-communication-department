@@ -3222,6 +3222,17 @@ function wrapPptxForSafeText(pptx){
 // worksheet, strips exactly that trailing quote from the ref attribute, and re-zips before
 // the actual download — the fix belongs at the file level since the defect is in the
 // library's own writer, not in anything this app tells it to draw.
+//
+// Separately: when a custom slide master (defineSlideMaster) is reused across many slides,
+// PptxGenJS's internal "next slide master index" counter still advances on every addSlide()
+// call, and it writes a [Content_Types].xml <Override> for each phantom "slideMasterN.xml"
+// that counter implies — e.g. a 16-slide deck ends up declaring slideMaster1.xml through
+// slideMaster16.xml, even though only slideMaster1.xml actually exists in the package. Real
+// PowerPoint's package validator checks that every declared Override resolves to an actual
+// part and refuses the whole file over the dangling ones — confirmed by diffing a user's
+// report against PowerPoint's own "Repair" output, which does exactly this: drops every
+// Override whose part doesn't exist. This does the same filtering before the file ever
+// reaches PowerPoint, so it never needs repairing in the first place.
 async function writePptxWithTableRefFix(pptx, fname){
   const buf = await pptx.write('arraybuffer');
   if(typeof JSZip === 'undefined'){
@@ -3243,6 +3254,16 @@ async function writePptxWithTableRefFix(pptx, fname){
     innerZip.file(tablePath, fixedXml);
     const fixedEmbedBuf = await innerZip.generateAsync({type:'arraybuffer'});
     outerZip.file(path, fixedEmbedBuf);
+  }
+  const contentTypesFile = outerZip.file('[Content_Types].xml');
+  if(contentTypesFile){
+    const ctXml = await contentTypesFile.async('string');
+    const realParts = new Set(Object.keys(outerZip.files).filter(p=>!outerZip.files[p].dir));
+    const fixedCtXml = ctXml.replace(/<Override PartName="([^"]+)"[^>]*\/>/g, (tag, partName) => {
+      const partPath = partName.replace(/^\//, '');
+      return realParts.has(partPath) ? tag : '';
+    });
+    if(fixedCtXml !== ctXml) outerZip.file('[Content_Types].xml', fixedCtXml);
   }
   const outBuf = await outerZip.generateAsync({type:'blob'});
   const url = URL.createObjectURL(outBuf);
