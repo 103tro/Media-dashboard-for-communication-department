@@ -2582,6 +2582,7 @@ async function generateReport(type, key){
   const C = getReportColors(), F = getReportFont();
 
   const pptx = new PptxGenJS();
+  wrapPptxForSafeText(pptx);
   pptx.defineLayout({name:'WIDE', width:13.33, height:7.5});
   pptx.layout = 'WIDE';
 
@@ -3171,6 +3172,45 @@ async function generateReport(type, key){
   const fname = `zvit-${bounds.start}_${bounds.end}.pptx`;
   await writePptxWithTableRefFix(pptx, fname);
   showToast('Звіт завантажено');
+}
+// PptxGenJS's own XML escaping (encodeXmlEntities) only replaces & < > " ' — it never strips
+// the control characters (0x00-0x08, 0x0B, 0x0C, 0x0E-0x1F) that the XML 1.0 spec forbids
+// outright, even as numeric character references. Topics, notes, guest names, channel names
+// etc. are free text people paste in from Word, PDFs, Telegram and the like, and that kind of
+// paste occasionally carries one of these bytes invisibly. When it does, PptxGenJS writes it
+// straight into a slide's XML text node, which makes that XML genuinely ill-formed — real
+// PowerPoint's parser can't recover the element and throws the whole thing away during its
+// "repair" pass (anywhere from one text run up to an entire slide, depending on where the
+// stray byte landed), which is exactly the "found a problem with content" / "removed it"
+// dialog this was causing. This strips those bytes from every string handed to addText/
+// addTable/addChart right before PptxGenJS ever sees them, so the defect never reaches the
+// file in the first place — cheaper and more thorough than trying to catch it after the fact
+// the way the table-ref fix below has to.
+function stripXmlUnsafeChars(s){
+  return s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+function sanitizeForPptx(val){
+  if(typeof val === 'string') return stripXmlUnsafeChars(val);
+  if(Array.isArray(val)) return val.map(sanitizeForPptx);
+  if(val && typeof val === 'object'){
+    const out = {};
+    for(const k in val) out[k] = sanitizeForPptx(val[k]);
+    return out;
+  }
+  return val;
+}
+function wrapPptxForSafeText(pptx){
+  const origAddSlide = pptx.addSlide.bind(pptx);
+  pptx.addSlide = function(...args){
+    const slide = origAddSlide(...args);
+    const origAddText = slide.addText.bind(slide);
+    slide.addText = (text, opts) => origAddText(sanitizeForPptx(text), sanitizeForPptx(opts));
+    const origAddTable = slide.addTable.bind(slide);
+    slide.addTable = (rows, opts) => origAddTable(sanitizeForPptx(rows), sanitizeForPptx(opts));
+    const origAddChart = slide.addChart.bind(slide);
+    slide.addChart = (type, data, opts) => origAddChart(type, sanitizeForPptx(data), sanitizeForPptx(opts));
+    return slide;
+  };
 }
 // PptxGenJS (through at least v4.0.1) writes a stray apostrophe onto the end of the cell-range
 // "ref" attribute in every embedded chart-data workbook's table definition — e.g.
