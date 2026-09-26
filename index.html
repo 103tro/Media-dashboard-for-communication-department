@@ -3233,6 +3233,17 @@ function wrapPptxForSafeText(pptx){
 // report against PowerPoint's own "Repair" output, which does exactly this: drops every
 // Override whose part doesn't exist. This does the same filtering before the file ever
 // reaches PowerPoint, so it never needs repairing in the first place.
+//
+// Separately again: PptxGenJS's chart-XML writer (makeChartType) shares one switch case for
+// area/bar/bar3d/line/radar charts, and only ever writes the required <c:grouping> element
+// for area (when stacked), bar and bar3d — the line branch falls through to <c:varyColors>
+// without ever writing it, for every line chart, unconditionally. CT_LineChart's schema
+// requires <c:grouping> as the first child of <c:lineChart>, so PowerPoint rejects every
+// line chart this library produces — confirmed by diffing a user's report against
+// PowerPoint's own repair of it, which inserts exactly <c:grouping val="standard"/> as the
+// first child of each affected <c:lineChart>. None of this app's line charts are stacked,
+// so "standard" is the correct value here too — this inserts it before PowerPoint ever sees
+// the file, the same way the fixes above do for their own defects.
 async function writePptxWithTableRefFix(pptx, fname){
   const buf = await pptx.write('arraybuffer');
   if(typeof JSZip === 'undefined'){
@@ -3254,6 +3265,12 @@ async function writePptxWithTableRefFix(pptx, fname){
     innerZip.file(tablePath, fixedXml);
     const fixedEmbedBuf = await innerZip.generateAsync({type:'arraybuffer'});
     outerZip.file(path, fixedEmbedBuf);
+  }
+  const chartPaths = Object.keys(outerZip.files).filter(p=>/^ppt\/charts\/chart\d+\.xml$/.test(p));
+  for(const path of chartPaths){
+    const chartXml = await outerZip.file(path).async('string');
+    const fixedChartXml = chartXml.replace(/<c:lineChart>(?!<c:grouping)/g, '<c:lineChart><c:grouping val="standard"/>');
+    if(fixedChartXml !== chartXml) outerZip.file(path, fixedChartXml);
   }
   const contentTypesFile = outerZip.file('[Content_Types].xml');
   if(contentTypesFile){
