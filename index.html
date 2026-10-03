@@ -270,7 +270,7 @@ tbody tr:last-child td{border-bottom:none;}
   .kp-card-tasks{font-size:10.5px; color:#444; margin-top:4px;}
 }
 .selection-bar.hidden{display:none;}
-.row-select, .item-select{cursor:pointer; width:15px; height:15px; accent-color:var(--brass);}
+.row-select, .item-select, .newsworthy-select{cursor:pointer; width:15px; height:15px; accent-color:var(--brass); flex:none;}
 .cell-topic a:hover{color:var(--navy-light); text-decoration:underline;}
 .cell-note{color:var(--ink-soft); font-size:12px; margin-top:2px;}
 .tag{
@@ -503,6 +503,14 @@ select, .select{
         </div>
         <div id="overviewNewsworthyBody">
           <div class="panel-sub" id="overviewNewsworthySub">—</div>
+          <div class="toolbar" style="margin-top:-4px;">
+            <button class="btn btn-ghost btn-sm" id="selectAllNewsworthyBtn" type="button">Вибрати все</button>
+          </div>
+          <div class="selection-bar hidden" id="newsworthySelectionBar">
+            <span id="newsworthySelectionCount">0 обрано</span>
+            <button class="btn btn-primary btn-sm" id="exportSelectedNewsworthyBtn" type="button">⭳ Експортувати вибрані</button>
+            <button class="btn btn-ghost btn-sm" id="clearNewsworthySelectionBtn" type="button">Скасувати вибір</button>
+          </div>
           <div id="overviewNewsworthyGroups"></div>
         </div>
       </div>
@@ -3857,6 +3865,15 @@ function renderOverviewNewsworthy(){
       renderOverviewNewsworthy();
     });
   });
+  container.querySelectorAll('.newsworthy-select').forEach(el=>{
+    el.addEventListener('click', (e)=>e.stopPropagation());
+    el.addEventListener('change', ()=>{
+      const id = el.dataset.selectId;
+      if(el.checked) selectedNewsworthyIds.add(id); else selectedNewsworthyIds.delete(id);
+      updateNewsworthySelectionBar();
+    });
+  });
+  updateNewsworthySelectionBar();
 }
 function statCard(label,val,sub){
   return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">${val}</div><div class="stat-sub">${sub}</div></div>`;
@@ -3935,6 +3952,23 @@ function exportBroadcastsExcel(ids, filenamePrefix){
     'Лінк на фото': x.photoLink||'',
   }));
   exportRowsExcel(rows, filenamePrefix, 'Список', [{wch:12},{wch:22},{wch:42},{wch:30},{wch:20},{wch:20},{wch:12},{wch:8},{wch:30},{wch:30},{wch:30}]);
+}
+function exportNewsworthyExcel(ids, filenamePrefix){
+  const list = DB.broadcasts.filter(x=>x.type==='подія' && ids.has(x.id))
+    .map(ev=>({ev, linked: DB.broadcasts.filter(b=>b.eventId===ev.id)}))
+    .sort((a,b)=>(b.ev.date||'0000-00-00').localeCompare(a.ev.date||'0000-00-00'));
+  const rows = list.map(({ev, linked})=>{
+    const sortedLinked = linked.slice().sort((a,b)=>(a.date||'').localeCompare(b.date||''));
+    return {
+      'Дата': fmtDate(ev.date),
+      'Подія': ev.topic || ev.channel || '',
+      "Кількість ефірів": linked.length,
+      'Канали': Array.from(new Set(sortedLinked.map(b=>b.channel).filter(Boolean))).join(', '),
+      'Деталі ефірів': sortedLinked.map(b=>`${fmtDate(b.date)} — ${b.channel||'—'}${b.topic?` — ${b.topic}`:''}`).join('; '),
+      'Примітка': ev.note||'',
+    };
+  });
+  exportRowsExcel(rows, filenamePrefix, 'Інфоприводи', [{wch:12},{wch:36},{wch:14},{wch:30},{wch:70},{wch:30}]);
 }
 function exportRowsAsCsv(rows, filenamePrefix){
   if(!rows.length){ showToast('Немає що експортувати'); return; }
@@ -5048,6 +5082,13 @@ function pluralUA(n, one, few, many){
 }
 let expandedNewsworthyMonths = new Set();
 let expandedNewsworthyEvents = new Set();
+let selectedNewsworthyIds = new Set();
+function updateNewsworthySelectionBar(){
+  const bar = document.getElementById('newsworthySelectionBar');
+  const n = selectedNewsworthyIds.size;
+  bar.classList.toggle('hidden', n===0);
+  document.getElementById('newsworthySelectionCount').textContent = `${n} обрано`;
+}
 // day-by-day "before/after" chart for one Подія — only days that actually have a linked
 // mention get a column (plus the event's own day, always, even with zero mentions that day),
 // with empty days in between simply skipped rather than drawn as blank space — coverage in
@@ -5080,6 +5121,7 @@ function newsworthyRowHtml(ev, linked){
   const expanded = expandedNewsworthyEvents.has(ev.id);
   return `<div class="contact-row" style="flex-direction:column; align-items:stretch; padding:11px 16px 11px 16px; cursor:pointer;" data-toggle-event="${attr(ev.id)}">
     <div style="display:flex; align-items:center; gap:10px;">
+      <input type="checkbox" class="newsworthy-select" data-select-id="${attr(ev.id)}" ${selectedNewsworthyIds.has(ev.id)?'checked':''}>
       <svg class="chevron" style="width:16px; height:16px; flex:none; transform:rotate(${expanded?'0':'-90'}deg); transition:transform .15s;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
       <div style="flex:1; font-weight:400;">${esc(ev.topic || ev.channel || 'Без назви')}${ev.topic && ev.channel ? ` <span style="font-weight:400; color:var(--ink-faint);">(${esc(ev.channel)})</span>` : ''}</div>
       <div style="color:var(--ink-faint); font-size:12.5px;">${fmtDate(ev.date)}</div>
@@ -7078,6 +7120,20 @@ function wireEvents(){
 
   document.getElementById('exportSelectedBroadcastsBtn').addEventListener('click', ()=>{
     exportBroadcastsExcel(selectedBroadcastIds, 'tematychnyy-spysok');
+  });
+  document.getElementById('exportSelectedNewsworthyBtn').addEventListener('click', ()=>{
+    exportNewsworthyExcel(selectedNewsworthyIds, 'infopryvody');
+  });
+  document.getElementById('selectAllNewsworthyBtn').addEventListener('click', ()=>{
+    document.querySelectorAll('#overviewNewsworthyGroups .newsworthy-select').forEach(el=>{
+      el.checked = true;
+      selectedNewsworthyIds.add(el.dataset.selectId);
+    });
+    updateNewsworthySelectionBar();
+  });
+  document.getElementById('clearNewsworthySelectionBtn').addEventListener('click', ()=>{
+    selectedNewsworthyIds.clear();
+    renderOverviewNewsworthy();
   });
   document.getElementById('deleteSelectedBroadcastsBtn').addEventListener('click', async ()=>{
     const n = selectedBroadcastIds.size;
