@@ -1104,7 +1104,7 @@ select, .select{
     </div>
     <div class="modal-body">
       <div class="field-row">
-        <div class="field"><label>Дата</label><input type="date" id="f_date"></div>
+        <div class="field"><label>Дата</label><input type="date" id="f_date" lang="uk"><div class="field-hint" id="f_dateHint">&nbsp;</div></div>
         <div class="field"><label>Статус</label>
           <select id="f_status"><option value="done">Вийшло</option><option value="plan">Заплановано / в роботі</option></select>
         </div>
@@ -1541,7 +1541,7 @@ select, .select{
     </div>
     <div class="modal-body">
       <div class="field-row">
-        <div class="field"><label>Дата</label><input type="date" id="e_date"></div>
+        <div class="field"><label>Дата</label><input type="date" id="e_date" lang="uk"><div class="field-hint" id="e_dateHint">&nbsp;</div></div>
         <div class="field" style="position:relative;"><label>Канал</label><input type="text" id="e_channel" autocomplete="off"><div id="e_channelAutocomplete" class="multi-name-popup hidden"></div></div>
       </div>
       <div class="field" style="margin-top:12px;">
@@ -1714,7 +1714,7 @@ const ICONS = {
 };
 const NAV = [
   {id:'overview', label:'Огляд', icon:ICONS.overview},
-  {id:'broadcasts', label:'Ефіри', icon:ICONS.broadcasts},
+  {id:'broadcasts', label:'Ефіри/Події', icon:ICONS.broadcasts},
   {id:'crosstab', label:"Хто де був", icon:ICONS.crosstab},
   {id:'contacts', label:'Журналісти', icon:ICONS.contacts},
   {id:'military', label:'Контакти', icon:ICONS.military},
@@ -3412,6 +3412,17 @@ function fmtDate(iso){
   const [y,m,d] = iso.split('-');
   return `${d}.${m}.${y}`;
 }
+// native <input type="date"> renders its text in whatever order the BROWSER's own UI
+// language dictates (commonly month-first for an English-language browser), regardless of
+// this page's lang="uk" — that's a Chromium/Firefox locale setting, not something a page can
+// override, so this shows the unambiguous дд.мм.рррр reading next to the field instead
+function wireDateHint(inputId, hintId){
+  const input = document.getElementById(inputId), hint = document.getElementById(hintId);
+  if(!input || !hint) return;
+  const update = () => { hint.textContent = fmtDate(input.value); };
+  input.addEventListener('input', update);
+  update();
+}
 function fmtMonthShort(ym){
   if(!ym) return '—';
   const [y,m] = ym.split('-');
@@ -4200,6 +4211,7 @@ function openBroadcastModal(id){
   const x = id ? DB.broadcasts.find(b=>b.id===id) : null;
   document.getElementById('broadcastModalTitle').textContent = x ? 'Редагувати запис' : 'Новий запис';
   document.getElementById('f_date').value = x ? (x.date||'') : todayISO();
+  document.getElementById('f_date').dispatchEvent(new Event('input'));
   document.getElementById('f_status').value = x ? x.status : 'done';
   document.getElementById('f_type').value = x ? (x.type||'ефір') : 'ефір';
   document.getElementById('f_channel').value = x ? x.channel : '';
@@ -5262,6 +5274,7 @@ function openEnemyModal(id){
   const x = id ? DB.enemyMentions.find(m=>m.id===id) : null;
   document.getElementById('enemyModalTitle').textContent = x ? 'Редагувати запис' : 'Новий запис';
   document.getElementById('e_date').value = x ? (x.date||'') : todayISO();
+  document.getElementById('e_date').dispatchEvent(new Event('input'));
   document.getElementById('e_channel').value = x ? x.channel : '';
   document.getElementById('e_message').value = x ? x.message : '';
   document.getElementById('e_messageLink').value = x ? (x.messageLink||'') : '';
@@ -6868,6 +6881,8 @@ function wireEvents(){
   });
   document.getElementById('broadcastSearch').addEventListener('input', debounce(renderBroadcasts, 120));
   document.getElementById('overviewYearSelect').addEventListener('change', (e)=>{ overviewYear = e.target.value; renderOverview(); });
+  wireDateHint('f_date', 'f_dateHint');
+  wireDateHint('e_date', 'e_dateHint');
   document.getElementById('filterYear').addEventListener('change', renderBroadcasts);
   document.getElementById('filterMonth').addEventListener('change', renderBroadcasts);
   document.getElementById('filterType').addEventListener('change', renderBroadcasts);
