@@ -2599,6 +2599,7 @@ function closeReportPeriodModal(){ document.getElementById('reportPeriodModal').
 /* ---- cross-reference helpers ---- */
 function guestUnitBreakdown(list){
   const counts = {};
+  const knownUnits = getKnownUnits();
   list.forEach(x=>{
     // a unit should count once per material even if several of its people
     // appear in the same broadcast together — this reflects "how many materials
@@ -2606,12 +2607,29 @@ function guestUnitBreakdown(list){
     const unitsHere = new Set();
     (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{
       const mc = findMilitaryContactByName(g);
-      const unit = (mc && mc.unit) ? mc.unit : 'Підрозділ не визначено';
-      unitsHere.add(unit);
+      if(mc && mc.unit){ unitsHere.add(mc.unit.trim()); return; }
+      // not a known person — could still be the unit's own name typed directly
+      // ("Бригада"), same rule as Спікери/Підрозділи on Огляд and Хто де був
+      const directUnit = findDirectUnitMention(g, knownUnits);
+      unitsHere.add(directUnit || 'Підрозділ не визначено');
     });
     unitsHere.forEach(unit=>{ counts[unit] = (counts[unit]||0)+1; });
   });
   return Object.entries(counts).sort((a,b)=>b[1]-a[1]);
+}
+// every "Спікер" count in the report applies the same split as Спікери/Підрозділи on
+// Огляд and Хто де був: a token that's actually a unit's own name ("Бригада"), not a
+// person, doesn't count as a speaker
+function extractSpeakerNames(list){
+  const knownUnits = getKnownUnits();
+  const names = [];
+  list.forEach(x=>{
+    (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{
+      if(!findMilitaryContactByName(g) && findDirectUnitMention(g, knownUnits)) return;
+      names.push(g);
+    });
+  });
+  return names;
 }
 function journalistsByRegion(){
   const counts = {};
@@ -2662,7 +2680,7 @@ async function generateReport(type, key){
   const donePrev = prevBounds ? filterByPeriod(allDone, prevBounds) : [];
   const changePct = donePrev.length ? Math.round((doneInPeriod.length - donePrev.length) / donePrev.length * 100) : null;
 
-  const guestSet = new Set(doneInPeriod.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean)));
+  const guestSet = new Set(extractSpeakerNames(doneInPeriod));
   const channelSet = new Set(doneInPeriod.map(x=>x.channel).filter(Boolean));
   const zahidCount = doneInPeriod.filter(x=>x.type==='подія').length;
   const efirCount = doneInPeriod.length - zahidCount;
@@ -2764,7 +2782,7 @@ async function generateReport(type, key){
 
   /* ---------- Slide 5: who represented the brigade ---------- */
   const guestCounts = {};
-  doneInPeriod.forEach(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{ guestCounts[g]=(guestCounts[g]||0)+1; }));
+  extractSpeakerNames(doneInPeriod).forEach(g=>{ guestCounts[g]=(guestCounts[g]||0)+1; });
   const topGuests = Object.entries(guestCounts).sort((a,b)=>b[1]-a[1]).slice(0,10);
   const unitBreakdown = guestUnitBreakdown(doneInPeriod).slice(0,8);
   slide = pptx.addSlide();
