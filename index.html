@@ -1289,6 +1289,11 @@ select, .select{
       <div class="field-hint" style="margin-bottom:10px;">
         Виправте назву — зміна застосується одразу до всіх контактів цього підрозділу.
         Якщо впишете назву, яка вже є в списку, обидва підрозділи об'єднаються в один.
+        Для загальних назв без конкретного контакту (наприклад, «Бригада») — додайте їх нижче, щоб такий запис у полі «Спікер» рахувався як підрозділ, а не як людина.
+      </div>
+      <div class="field-row" style="grid-template-columns:1fr auto; align-items:end; margin-bottom:10px;">
+        <div class="field"><label>Додати підрозділ без контакту</label><input type="text" id="newUnitName" placeholder="Напр. Бригада"></div>
+        <button class="btn btn-ghost btn-sm" id="addUnitBtn" type="button">+ Додати</button>
       </div>
       <div class="search-box" style="margin-bottom:10px;">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
@@ -1817,6 +1822,7 @@ function migrate(db){
   if(!('lastBackupAt' in db)) db.lastBackupAt = null;
   if(!db.settings) db.settings = {};
   if(!('militaryContacts' in db)) db.militaryContacts = JSON.parse(JSON.stringify(SEED_DATA.militaryContacts || []));
+  if(!('extraUnits' in db)) db.extraUnits = [];
   if(!('enemyMentions' in db)) db.enemyMentions = JSON.parse(JSON.stringify(SEED_DATA.enemyMentions || []));
   if(!('socialStats' in db)) db.socialStats = JSON.parse(JSON.stringify(SEED_DATA.socialStats || []));
   if(!('socialNetworks' in db)) db.socialNetworks = JSON.parse(JSON.stringify(SEED_DATA.socialNetworks || ['Facebook','Instagram']));
@@ -4365,7 +4371,10 @@ let crosstabMode = 'guest';
 // аудиторія) — so a guest entry that names the unit itself directly ("Чорний стриж"), not a
 // specific person, is recognized as a unit even without its own contact card
 function getKnownUnits(){
-  return Array.from(new Set(DB.militaryContacts.map(c=>(c.unit||'').trim()).filter(Boolean)));
+  return Array.from(new Set([
+    ...DB.militaryContacts.map(c=>(c.unit||'').trim()).filter(Boolean),
+    ...(DB.extraUnits||[]).map(u=>(u||'').trim()).filter(Boolean),
+  ]));
 }
 function findDirectUnitMention(name, knownUnits){
   return knownUnits.find(u=>textsMatch(name, u) || textsMatch(u, name)) || null;
@@ -5117,37 +5126,75 @@ function exportMilitaryExcel(ids){
 function allUnitStats(){
   const counts = {};
   DB.militaryContacts.forEach(c=>{ if(c.unit) counts[c.unit] = (counts[c.unit]||0)+1; });
-  return Object.entries(counts).sort((a,b)=>a[0].localeCompare(b[0],'uk'));
+  const extraSet = new Set((DB.extraUnits||[]).map(u=>(u||'').trim()).filter(Boolean));
+  extraSet.forEach(u=>{ if(!(u in counts)) counts[u] = 0; });
+  return Object.entries(counts).sort((a,b)=>a[0].localeCompare(b[0],'uk')).map(([u,count])=>[u, count, extraSet.has(u)]);
 }
 function openUnitManageModal(){
   document.getElementById('unitManageSearch').value = '';
+  document.getElementById('newUnitName').value = '';
   renderUnitManageRows('');
   document.getElementById('unitManageModal').classList.add('open');
 }
 function closeUnitManageModal(){ document.getElementById('unitManageModal').classList.remove('open'); }
+function unitManageRowHtml(u, count, isExtra){
+  return `<div class="field-row" style="grid-template-columns:1fr 1fr auto; align-items:center;" data-unit-row>
+      <div style="font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);">${count} контакт(ів)</div>
+      <input type="text" class="unit-rename-input" data-original="${attr(u)}" data-is-extra="${isExtra?'true':'false'}" value="${esc(u)}">
+      ${isExtra ? `<button type="button" class="icon-btn" data-remove-unit-row title="Прибрати підрозділ зі списку">${iconTrash}</button>` : '<span></span>'}
+    </div>`;
+}
 function renderUnitManageRows(filterText){
   const stats = allUnitStats();
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('unitManageRows');
   const filtered = stats.filter(([u])=> !q || u.toLowerCase().includes(q));
   if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
-  rows.innerHTML = filtered.map(([u,count])=>`
-    <div class="field-row" style="grid-template-columns:1fr 1fr; align-items:center;">
-      <div style="font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);">${count} контакт(ів)</div>
-      <input type="text" class="unit-rename-input" data-original="${attr(u)}" value="${esc(u)}">
-    </div>`).join('');
+  rows.innerHTML = filtered.map(([u,count,isExtra])=>unitManageRowHtml(u,count,isExtra)).join('');
+  wireUnitManageRowRemoveButtons();
+}
+function wireUnitManageRowRemoveButtons(){
+  document.querySelectorAll('#unitManageRows [data-remove-unit-row]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{ btn.closest('[data-unit-row]').remove(); });
+  });
+}
+// a standalone unit (e.g. "Бригада" — the formation itself, not anyone's individual
+// "Підрозділ") has no contact of its own to carry it in DB.militaryContacts, so it only
+// needs to exist in this list for getKnownUnits() to recognize it as a unit, not a person
+function addUnitManageRow(){
+  const input = document.getElementById('newUnitName');
+  const val = input.value.trim();
+  if(!val) return;
+  const exists = allUnitStats().some(([u])=>u.toLowerCase()===val.toLowerCase())
+    || Array.from(document.querySelectorAll('#unitManageRows .unit-rename-input')).some(inp=>inp.value.trim().toLowerCase()===val.toLowerCase());
+  if(exists){ showToast('Такий підрозділ вже є в списку'); return; }
+  document.getElementById('unitManageSearch').value = '';
+  const rows = document.getElementById('unitManageRows');
+  if(rows.querySelector('.empty-state')) rows.innerHTML = '';
+  rows.insertAdjacentHTML('afterbegin', unitManageRowHtml(val, 0, true));
+  wireUnitManageRowRemoveButtons();
+  input.value = '';
+  input.focus();
 }
 function saveUnitRenames(){
-  const inputs = document.querySelectorAll('#unitManageRows .unit-rename-input');
+  const rowInputs = document.querySelectorAll('#unitManageRows .unit-rename-input');
   let changed = 0;
-  inputs.forEach(inp=>{
-    const original = inp.dataset.original;
+  const newExtraUnits = [];
+  rowInputs.forEach(inp=>{
+    const original = inp.dataset.original || '';
     const val = inp.value.trim();
+    if(inp.dataset.isExtra === 'true'){
+      if(val) newExtraUnits.push(val);
+      return;
+    }
     if(val && val !== original){
       DB.militaryContacts.forEach(c=>{ if(c.unit === original) c.unit = val; });
       changed++;
     }
   });
+  const prevExtra = DB.extraUnits || [];
+  if(JSON.stringify(prevExtra) !== JSON.stringify(newExtraUnits)) changed++;
+  DB.extraUnits = newExtraUnits;
   return changed;
 }
 
@@ -7376,6 +7423,8 @@ function wireEvents(){
   document.getElementById('unitManageClose').addEventListener('click', closeUnitManageModal);
   document.getElementById('unitManageCancelBtn').addEventListener('click', closeUnitManageModal);
   document.getElementById('unitManageSearch').addEventListener('input', debounce((e)=>renderUnitManageRows(e.target.value), 100));
+  document.getElementById('addUnitBtn').addEventListener('click', addUnitManageRow);
+  document.getElementById('newUnitName').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addUnitManageRow(); } });
   document.getElementById('unitManageSaveBtn').addEventListener('click', async ()=>{
     const changed = saveUnitRenames();
     if(changed){ await saveDB(true); renderNav(); renderMilitaryContacts(); }
