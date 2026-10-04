@@ -220,6 +220,8 @@ button{font-family:inherit;}
 .grid-2{display:grid; grid-template-columns:1.3fr 1fr; gap:14px;}
 .grid-2b{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px;}
 .grid-2b > div{min-width:0;}
+.grid-3b{display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr); gap:14px;}
+.grid-3b > div{min-width:0;}
 .chart-label{font-size:11.5px; font-weight:700; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em; margin-bottom:8px;}
 .pill-year{font-size:10.5px; padding:3px 10px; border-radius:20px; border:1px solid #ddd; background:transparent; color:#aaa; cursor:pointer; font-weight:700; transition:all .12s; user-select:none;}
 .pill-year:hover{opacity:.75;}
@@ -439,6 +441,7 @@ select, .select{
   .main{padding:16px;}
   .grid-stats{grid-template-columns:1fr 1fr;}
   .grid-2, .grid-2b{grid-template-columns:1fr;}
+  .grid-3b{grid-template-columns:1fr;}
   .contact-row{padding-left:16px;}
   .field-row{grid-template-columns:1fr; gap:14px;}
   .field{min-width:0;}
@@ -485,11 +488,16 @@ select, .select{
           </div>
         </div>
       </div>
-      <div class="grid-2b">
+      <div class="grid-3b">
         <div class="panel">
           <div class="panel-title">Спікери</div>
           <div class="panel-sub" id="topGuestsSub">Усі, за кількістю виступів</div>
           <div id="topGuests"></div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Підрозділи</div>
+          <div class="panel-sub" id="topUnitsSub">Усі, за кількістю матеріалів</div>
+          <div id="topUnits"></div>
         </div>
         <div class="panel">
           <div class="panel-title">Канали</div>
@@ -3764,7 +3772,7 @@ const lineValueLabels = {
 };
 let monthlyChart=null;
 let yearlyChart=null;
-let rankExpanded = {guests:false, channels:false};
+let rankExpanded = {guests:false, channels:false, units:false};
 let overviewYear = null; // a year string, or 'all'
 function renderOverview(){
   const b = DB.broadcasts;
@@ -3877,16 +3885,32 @@ function renderOverview(){
 
   document.getElementById('topGuestsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю виступів' : `${overviewYear} рік, за кількістю виступів`;
   document.getElementById('topChannelsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
-  const guestCounts = {}, chanCounts = {};
+  document.getElementById('topUnitsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
+  // a "guest" entry only counts as a speaker when it's an actual person — a guest field that
+  // directly names a unit ("Чорний стриж") instead of someone representing it counts toward
+  // Підрозділи only, same split as buildGuestIndex/buildUnitIndex on Хто де був
+  const knownUnits = getKnownUnits();
+  const guestCounts = {}, chanCounts = {}, unitCounts = {};
   doneScope.forEach(x=>{
-    (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{
-      guestCounts[g] = (guestCounts[g]||0)+1;
+    const unitsHere = new Set();
+    (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(n=>{
+      const contact = findMilitaryContactByName(n);
+      if(contact){
+        guestCounts[n] = (guestCounts[n]||0)+1;
+        if(contact.unit) unitsHere.add(contact.unit.trim());
+        return;
+      }
+      const directUnit = findDirectUnitMention(n, knownUnits);
+      if(directUnit){ unitsHere.add(directUnit); return; }
+      guestCounts[n] = (guestCounts[n]||0)+1;
     });
+    unitsHere.forEach(u=>{ unitCounts[u] = (unitCounts[u]||0)+1; });
     if(x.channel){
       const grp = channelGroupOf(x.channel);
       chanCounts[grp] = (chanCounts[grp]||0)+1;
     }
   });
+  renderRankPanel('topUnits', unitCounts, 'units');
   renderRankPanel('topGuests', guestCounts, 'guests');
   renderRankPanel('topChannels', chanCounts, 'channels');
   renderOverviewNewsworthy();
@@ -4337,10 +4361,26 @@ async function deleteBroadcast(){
    CROSSTAB TAB
    ================================================================== */
 let crosstabMode = 'guest';
+// established units — anything already used as someone's "Підрозділ" in Контакти (внутрішня
+// аудиторія) — so a guest entry that names the unit itself directly ("Чорний стриж"), not a
+// specific person, is recognized as a unit even without its own contact card
+function getKnownUnits(){
+  return Array.from(new Set(DB.militaryContacts.map(c=>(c.unit||'').trim()).filter(Boolean)));
+}
+function findDirectUnitMention(name, knownUnits){
+  return knownUnits.find(u=>textsMatch(name, u) || textsMatch(u, name)) || null;
+}
+// a "guest" entry is a unit's own name, not a person, when it doesn't match any contact but
+// does match a known unit — those belong in buildUnitIndex/"Підрозділи", not here; anything
+// that matches neither a contact nor a known unit defaults to being treated as a person,
+// since most free-typed guest entries that aren't recognized yet are still real people who
+// simply haven't been added to Контакти (внутрішня аудиторія) yet
 function buildGuestIndex(){
   const idx = {};
+  const knownUnits = getKnownUnits();
   DB.broadcasts.filter(x=>x.status==='done').forEach(x=>{
     (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{
+      if(!findMilitaryContactByName(g) && findDirectUnitMention(g, knownUnits)) return;
       idx[g] = idx[g] || [];
       idx[g].push(x);
     });
@@ -4349,16 +4389,14 @@ function buildGuestIndex(){
 }
 function buildUnitIndex(){
   const idx = {};
-  // established units — anything already used as someone's "Підрозділ" — so a guest entry
-  // that names the unit itself directly ("4 батальйон"), not a specific person, still counts
-  const knownUnits = Array.from(new Set(DB.militaryContacts.map(c=>(c.unit||'').trim()).filter(Boolean)));
+  const knownUnits = getKnownUnits();
   DB.broadcasts.filter(x=>x.status==='done').forEach(x=>{
     const names = (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean);
     const units = new Set();
     names.forEach(n=>{
       const contact = findMilitaryContactByName(n);
       if(contact && contact.unit){ units.add(contact.unit.trim()); return; }
-      const directUnit = knownUnits.find(u=>textsMatch(n, u) || textsMatch(u, n));
+      const directUnit = findDirectUnitMention(n, knownUnits);
       if(directUnit) units.add(directUnit);
     });
     units.forEach(u=>{
