@@ -3543,7 +3543,7 @@ function resetCollapseStateForTab(id){
   // every tab starts fully collapsed on entry — expand trackers just get cleared (empty =
   // collapsed by construction), and the handful of static chart panels get re-added to the
   // collapsed set explicitly since their id list isn't derived from data
-  if(id==='broadcasts'){ expandedMonths.clear(); broadcastsAutoExpandPending = true; }
+  if(id==='broadcasts') expandedMonths.clear();
   if(id==='contacts') expandedMedia.clear();
   if(id==='military') expandedUnits.clear();
   if(id==='enemy'){
@@ -4106,12 +4106,6 @@ function exportRowsAsCsv(rows, filenamePrefix){
   showToast('Список завантажено (CSV — відкривається в Excel)');
 }
 let expandedMonths = new Set(); // presence = expanded; empty means everything starts collapsed
-// set alongside expandedMonths.clear() on tab entry — consumed (and cleared) by the next
-// renderBroadcasts() to auto-open just the topmost group, so the newest month (or
-// Заплановано/Без дати, whichever sorts first) is visible without an extra click; a plain
-// expandedMonths.clear() elsewhere (e.g. "Згорнути все") leaves this false, so it won't
-// spring back open right after the person collapses it on purpose
-let broadcastsAutoExpandPending = false;
 function populateBroadcastFilters(){
   const years = Array.from(new Set(DB.broadcasts.map(x=>x.date?x.date.slice(0,4):null).filter(Boolean))).sort().reverse();
   const ys = document.getElementById('filterYear');
@@ -4225,8 +4219,6 @@ function renderBroadcasts(){
   const planGroup = groupArr.find(g=>g.key==='__plan__');
   const noDateGroup = groupArr.find(g=>g.key==='__nodate__');
   groupArr = [planGroup, noDateGroup, ...dateGroups].filter(Boolean);
-  if(broadcastsAutoExpandPending && groupArr.length) expandedMonths.add(groupArr[0].key);
-  broadcastsAutoExpandPending = false;
 
   const isSearching = !!(f.q || f.year!=='all' || f.month!=='all' || f.status!=='all' || f.type!=='all');
   const container = document.getElementById('broadcastGroups');
