@@ -4531,7 +4531,8 @@ function openBroadcastModal(id){
   document.getElementById('f_photoLink').value = x ? (x.photoLink||'') : '';
   document.getElementById('deleteBroadcastBtn').style.display = x ? 'inline-flex' : 'none';
   document.getElementById('broadcastModal').classList.add('open');
-  document.getElementById('f_channel').focus();
+  document.querySelector('#broadcastModal .modal-body').scrollTop = 0;
+  document.getElementById('f_channel').focus({preventScroll:true});
 }
 function closeBroadcastModal(){ document.getElementById('broadcastModal').classList.remove('open'); editingBroadcastId=null; }
 
@@ -5111,7 +5112,8 @@ function openContactModal(id){
   document.getElementById('c_note').value = c ? c.note : '';
   document.getElementById('deleteContactBtn').style.display = c ? 'inline-flex' : 'none';
   document.getElementById('contactModal').classList.add('open');
-  document.getElementById('c_media').focus();
+  document.querySelector('#contactModal .modal-body').scrollTop = 0;
+  document.getElementById('c_media').focus({preventScroll:true});
 }
 function closeContactModal(){ document.getElementById('contactModal').classList.remove('open'); editingContactId=null; }
 async function saveContact(){
