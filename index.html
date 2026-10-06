@@ -530,6 +530,24 @@ select, .select{
           <div id="overviewNewsworthyGroups"></div>
         </div>
       </div>
+      <div class="panel">
+        <div class="media-head" data-collapse-target="overviewAdCampaignsBody" style="cursor:pointer; padding:0; margin-bottom:0;">
+          <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+          <div class="panel-title" style="margin:0;">Рекламні кампанії</div>
+        </div>
+        <div id="overviewAdCampaignsBody">
+          <div class="panel-sub" id="overviewAdCampaignsSub">—</div>
+          <div class="toolbar" style="margin-top:-4px;">
+            <button class="btn btn-ghost btn-sm" id="selectAllAdCampaignsBtn" type="button">Вибрати все</button>
+          </div>
+          <div class="selection-bar hidden" id="adCampaignSelectionBar">
+            <span id="adCampaignSelectionCount">0 обрано</span>
+            <button class="btn btn-primary btn-sm" id="exportSelectedAdCampaignsBtn" type="button">⭳ Експортувати вибрані</button>
+            <button class="btn btn-ghost btn-sm" id="clearAdCampaignSelectionBtn" type="button">Скасувати вибір</button>
+          </div>
+          <div id="overviewAdCampaignsGroups"></div>
+        </div>
+      </div>
     </section>
 
     <!-- EFIRY -->
@@ -562,6 +580,7 @@ select, .select{
           <option value="all">Ефіри й події</option>
           <option value="ефір">Тільки ефіри</option>
           <option value="подія">Тільки події</option>
+          <option value="реклама">Тільки рекламні кампанії</option>
         </select>
         <select id="sortOrder">
           <option value="desc">Спочатку нові</option>
@@ -1120,7 +1139,7 @@ select, .select{
     </div>
     <div class="modal-body">
       <div class="field-row">
-        <div class="field"><label>Дата</label>
+        <div class="field"><label id="f_dateLabel">Дата</label>
           <div class="date-field">
             <input type="text" id="f_date" placeholder="дд.мм.рррр" inputmode="numeric" autocomplete="off" maxlength="10">
             <button class="date-pick-btn" type="button" data-native="f_date_native" title="Обрати з календаря"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></button>
@@ -1132,10 +1151,29 @@ select, .select{
           <select id="f_status"><option value="done">Вийшло</option><option value="plan">Заплановано / в роботі</option></select>
         </div>
       </div>
+      <div class="field-row" id="f_dateEndWrap" style="display:none;">
+        <div class="field"><label>Дата закінчення</label>
+          <div class="date-field">
+            <input type="text" id="f_dateEnd" placeholder="дд.мм.рррр" inputmode="numeric" autocomplete="off" maxlength="10">
+            <button class="date-pick-btn" type="button" data-native="f_dateEnd_native" title="Обрати з календаря"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></button>
+            <input type="date" id="f_dateEnd_native" class="date-native-hidden" tabindex="-1">
+          </div>
+          <div class="field-hint" id="f_dateEndHint">&nbsp;</div>
+        </div>
+        <div class="field"></div>
+      </div>
       <div class="field-row">
         <div class="field" style="position:relative;"><label>Канал / медіа / подія</label><input type="text" id="f_channel" placeholder="напр. Суспільне Львів" autocomplete="off"><div id="f_channelAutocomplete" class="multi-name-popup hidden"></div></div>
         <div class="field"><label>Тип</label>
-          <select id="f_type"><option value="ефір">Ефір / публікація</option><option value="подія">Подія / зустріч</option></select>
+          <select id="f_type"><option value="ефір">Ефір / публікація</option><option value="подія">Подія / зустріч</option><option value="реклама">Рекламна кампанія</option></select>
+        </div>
+      </div>
+      <div class="field" id="f_mediumWrap" style="display:none;">
+        <label>Носій <span style="font-weight:400; color:var(--ink-faint);">(можна декілька)</span></label>
+        <div id="f_mediumCheckboxes" style="display:flex; flex-wrap:wrap; gap:10px 16px; margin:4px 0;"></div>
+        <div style="display:flex; gap:8px; margin-top:4px;">
+          <input type="text" id="f_newMedium" placeholder="Додати інший носій…" autocomplete="off" style="flex:1;">
+          <button class="btn btn-ghost btn-sm" id="f_addMediumBtn" type="button">+ Додати</button>
         </div>
       </div>
       <div class="field" id="f_eventLinkWrap" style="position:relative;">
@@ -1152,17 +1190,17 @@ select, .select{
         <div id="f_linkedBroadcastsList" style="margin-top:8px; display:flex; flex-direction:column; gap:6px;"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Тема</label><input type="text" id="f_topic" placeholder="Коротка назва матеріалу"></div>
+        <div class="field"><label id="f_topicLabel">Тема</label><input type="text" id="f_topic" placeholder="Коротка назва матеріалу"></div>
         <div class="field"><label>Лінк на тему</label><input type="url" id="f_topicLink" placeholder="https://…"></div>
       </div>
-      <div class="field" style="position:relative;"><label>Спікер</label><input type="text" id="f_guest" placeholder="Через кому, якщо декілька" autocomplete="off"><div id="f_guestAutocomplete" class="multi-name-popup hidden"></div></div>
+      <div class="field" style="position:relative;"><label id="f_guestLabel">Спікер</label><input type="text" id="f_guest" placeholder="Через кому, якщо декілька" autocomplete="off"><div id="f_guestAutocomplete" class="multi-name-popup hidden"></div></div>
       <div class="field" style="position:relative; margin-top:12px;"><label>Журналіст</label><input type="text" id="f_journalist" placeholder="Хто відповідав за цей ефір" autocomplete="off"><div id="f_journalistAutocomplete" class="multi-name-popup hidden"></div></div>
       <div class="field-row">
         <div class="field"><label>Примітка</label><input type="text" id="f_note" placeholder="напр. текст, очікуємо…"></div>
         <div class="field"><label>Лінк до примітки</label><input type="url" id="f_noteLink" placeholder="https://…"></div>
       </div>
       <div class="field-row">
-        <div class="field"><label>Лінк на вихідний файл</label><input type="url" id="f_fileLink" placeholder="https://…"></div>
+        <div class="field"><label id="f_fileLinkLabel">Лінк на вихідний файл</label><input type="url" id="f_fileLink" placeholder="https://…"></div>
         <div class="field"><label>Лінк на фото з ефіру</label><input type="url" id="f_photoLink" placeholder="https://…"></div>
       </div>
     </div>
@@ -1823,6 +1861,7 @@ function migrate(db){
   if(!db.settings) db.settings = {};
   if(!('militaryContacts' in db)) db.militaryContacts = JSON.parse(JSON.stringify(SEED_DATA.militaryContacts || []));
   if(!('extraUnits' in db)) db.extraUnits = [];
+  if(!('adMediums' in db)) db.adMediums = ['Телебачення','Радіо','Зовнішня реклама','Соцмережі'];
   if(!('enemyMentions' in db)) db.enemyMentions = JSON.parse(JSON.stringify(SEED_DATA.enemyMentions || []));
   if(!('socialStats' in db)) db.socialStats = JSON.parse(JSON.stringify(SEED_DATA.socialStats || []));
   if(!('socialNetworks' in db)) db.socialNetworks = JSON.parse(JSON.stringify(SEED_DATA.socialNetworks || ['Facebook','Instagram']));
@@ -3825,8 +3864,9 @@ function renderOverview(){
   const recordsScope = b.filter(inYear);
   const periodLabel = overviewYear==='all' ? 'за весь час' : `за ${overviewYear} рік`;
 
-  const efirScope = doneScope.filter(x=>x.type!=='подія').length;
+  const efirScope = doneScope.filter(x=>x.type==='ефір').length;
   const podiiScope = doneScope.filter(x=>x.type==='подія').length;
+  const adScope = doneScope.filter(x=>x.type==='реклама').length;
   const eventsScope = b.filter(x=>x.type==='подія' && inYear(x));
   const newsworthyScope = eventsScope.filter(ev=>b.some(x=>x.eventId===ev.id)).length;
 
@@ -3839,6 +3879,7 @@ function renderOverview(){
     ${statCard('Ефірів', efirScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
     ${statCard('Подій', podiiScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
     ${statCard('Інфоприводів', newsworthyScope, `з ${eventsScope.length} ${pluralUA(eventsScope.length,'подія','події','подій')}`)}
+    ${statCard('Рекламних кампаній', adScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
   `;
 
   // monthly chart: only months that actually have a recorded entry — no empty gap-filling,
@@ -3849,7 +3890,7 @@ function renderOverview(){
   const keys = datedScope.length
     ? Array.from(new Set(datedScope.map(x=>x.date.slice(0,7)))).sort()
     : [curMonthKey];
-  const efirCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type!=='подія').length);
+  const efirCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='ефір').length);
   const zahidCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='подія').length);
   const labels = keys.map(k=>monthLabel(k));
   const PX_PER_MONTH = 58;
@@ -3882,7 +3923,7 @@ function renderOverview(){
   // so it stays unaffected by the year picker above)
   const datedDone = done.filter(x=>x.date);
   const years = datedDone.length ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,4)))).sort() : [];
-  const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type!=='подія').length);
+  const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='ефір').length);
   const zahidYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='подія').length);
   const yctx = document.getElementById('chartYearly').getContext('2d');
   if(yearlyChart) yearlyChart.destroy();
@@ -3938,6 +3979,7 @@ function renderOverview(){
   renderRankPanel('topGuests', guestCounts, 'guests');
   renderRankPanel('topChannels', chanCounts, 'channels');
   renderOverviewNewsworthy();
+  renderOverviewAdCampaigns();
 }
 function renderOverviewNewsworthy(){
   const allEvents = DB.broadcasts.filter(b=>b.type==='подія' && (overviewYear==='all' || (b.date && b.date.slice(0,4)===overviewYear)));
@@ -3995,6 +4037,105 @@ function renderOverviewNewsworthy(){
     });
   });
   updateNewsworthySelectionBar();
+}
+let expandedAdCampaignMonths = new Set();
+let selectedAdCampaignIds = new Set();
+function updateAdCampaignSelectionBar(){
+  const bar = document.getElementById('adCampaignSelectionBar');
+  const n = selectedAdCampaignIds.size;
+  bar.classList.toggle('hidden', n===0);
+  document.getElementById('adCampaignSelectionCount').textContent = `${n} обрано`;
+}
+function adCampaignRowHtml(x){
+  const period = x.dateEnd ? `${fmtDate(x.date)} – ${fmtDate(x.dateEnd)}` : fmtDate(x.date);
+  const participants = (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).join(', ');
+  return `<div class="contact-row" style="flex-direction:column; align-items:stretch; padding:11px 16px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <input type="checkbox" class="adcampaign-select" data-select-id="${attr(x.id)}" ${selectedAdCampaignIds.has(x.id)?'checked':''}>
+      <div style="flex:1; font-weight:400;">${esc(x.topic || x.channel || 'Без назви')}${x.topic && x.channel ? ` <span style="font-weight:400; color:var(--ink-faint);">(${esc(x.channel)})</span>` : ''}</div>
+      <div style="color:var(--ink-faint); font-size:12.5px;">${x.status==='plan' ? 'заплановано' : period}</div>
+      <span class="tag ${x.status==='done'?'tag-done':'tag-plan'}">${x.status==='done'?'Вийшло':'Заплановано'}</span>
+    </div>
+    <div style="margin:6px 0 0 26px; font-size:12.5px; color:var(--ink-faint); display:flex; flex-wrap:wrap; gap:4px 14px;">
+      ${x.medium&&x.medium.length ? `<span>Носій: ${esc(x.medium.join(', '))}</span>` : ''}
+      ${participants ? `<span>Учасники: ${esc(participants)}</span>` : ''}
+      ${x.journalist ? `<span>Контактна особа: ${esc(x.journalist)}</span>` : ''}
+      ${x.fileLink ? `<a href="${attr(x.fileLink)}" target="_blank" rel="noopener">Матеріали</a>` : ''}
+    </div>
+    ${x.note ? `<div style="margin:4px 0 0 26px; font-size:12.5px; color:var(--ink-faint);">${esc(x.note)}</div>` : ''}
+  </div>`;
+}
+function renderOverviewAdCampaigns(){
+  const campaigns = DB.broadcasts.filter(x=>x.type==='реклама' && (overviewYear==='all' || (x.date && x.date.slice(0,4)===overviewYear)));
+  document.getElementById('overviewAdCampaignsSub').textContent = `${campaigns.length} ${pluralUA(campaigns.length,'кампанія','кампанії','кампаній')}`;
+
+  const groups = new Map();
+  campaigns.forEach(x=>{
+    const key = x.status==='plan' ? '__plan__' : (x.date ? x.date.slice(0,7) : '__nodate__');
+    if(!groups.has(key)){
+      let label;
+      if(key==='__plan__') label = 'Заплановано';
+      else if(key==='__nodate__') label = 'Без дати';
+      else { const [y,m] = key.split('-'); label = `${MONTHS_UA_FULL[parseInt(m,10)-1]} ${y}`; }
+      groups.set(key, {key, label, items:[]});
+    }
+    groups.get(key).items.push(x);
+  });
+  groups.forEach(g=>g.items.sort((a,b)=>(b.date||'').localeCompare(a.date||'')));
+  let groupArr = Array.from(groups.values());
+  const dateGroups = groupArr.filter(g=>g.key!=='__plan__' && g.key!=='__nodate__').sort((a,b)=>b.key.localeCompare(a.key));
+  const planGroup = groupArr.find(g=>g.key==='__plan__');
+  const noDateGroup = groupArr.find(g=>g.key==='__nodate__');
+  groupArr = [planGroup, noDateGroup, ...dateGroups].filter(Boolean);
+
+  const container = document.getElementById('overviewAdCampaignsGroups');
+  container.innerHTML = groupArr.map(g=>{
+    const collapsed = !expandedAdCampaignMonths.has(g.key);
+    return `<div class="media-group">
+      <div class="media-head ${collapsed?'collapsed':''}" data-month="${attr(g.key)}" style="background:var(--brass-bg); border-radius:8px;">
+        <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
+        <div class="media-name">${esc(g.label)}</div>
+        <span class="media-badge">${g.items.length}</span>
+      </div>
+      <div class="media-body ${collapsed?'hidden':''}">
+        ${g.items.map(adCampaignRowHtml).join('')}
+      </div>
+    </div>`;
+  }).join('') || `<div class="empty-state" style="padding:20px 0;">Немає рекламних кампаній${overviewYear!=='all'?' за '+overviewYear+' рік':''}</div>`;
+
+  container.querySelectorAll('.media-head').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const k = el.dataset.month;
+      if(expandedAdCampaignMonths.has(k)) expandedAdCampaignMonths.delete(k); else expandedAdCampaignMonths.add(k);
+      renderOverviewAdCampaigns();
+    });
+  });
+  container.querySelectorAll('.adcampaign-select').forEach(el=>{
+    el.addEventListener('click', (e)=>e.stopPropagation());
+    el.addEventListener('change', ()=>{
+      const id = el.dataset.selectId;
+      if(el.checked) selectedAdCampaignIds.add(id); else selectedAdCampaignIds.delete(id);
+      updateAdCampaignSelectionBar();
+    });
+  });
+  updateAdCampaignSelectionBar();
+}
+function exportAdCampaignsExcel(ids, filenamePrefix){
+  const list = DB.broadcasts.filter(x=>x.type==='реклама' && ids.has(x.id))
+    .sort((a,b)=>(b.date||'0000-00-00').localeCompare(a.date||'0000-00-00'));
+  const rows = list.map(x=>({
+    'Дата початку': x.status==='plan' ? 'заплановано' : fmtDate(x.date),
+    'Дата закінчення': x.dateEnd ? fmtDate(x.dateEnd) : '',
+    'Назва кампанії': x.topic||'',
+    'Канал': x.channel||'',
+    'Носій': (x.medium||[]).join(', '),
+    'Статус': x.status==='done' ? 'Вийшло' : 'Заплановано',
+    'Учасники': x.guest||'',
+    'Контактна особа': x.journalist||'',
+    'Примітка': x.note||'',
+    'Посилання на матеріали': x.fileLink||'',
+  }));
+  exportRowsExcel(rows, filenamePrefix, 'Рекламні кампанії', [{wch:12},{wch:14},{wch:36},{wch:24},{wch:24},{wch:12},{wch:28},{wch:24},{wch:30},{wch:30}]);
 }
 function statCard(label,val,sub){
   return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">${val}</div><div class="stat-sub">${sub}</div></div>`;
@@ -4157,13 +4298,16 @@ function closeMediaInfoModal(){ document.getElementById('mediaInfoModal').classL
 
 function broadcastRowHtml(x){
   const materials = [];
-  if(x.fileLink) materials.push(linkIcon(x.fileLink, 'Вихідний файл', iconFile));
+  if(x.fileLink) materials.push(linkIcon(x.fileLink, x.type==='реклама' ? 'Матеріали кампанії' : 'Вихідний файл', iconFile));
   if(x.photoLink) materials.push(linkIcon(x.photoLink, 'Фото з ефіру', iconPhoto));
   if(x.noteLink) materials.push(linkIcon(x.noteLink, x.note||'Додатково', iconLink));
+  const isAd = x.type==='реклама';
+  const dateCell = x.status==='plan' ? '—' : (isAd && x.dateEnd ? `${fmtDate(x.date)}–${fmtDate(x.dateEnd)}` : fmtDate(x.date));
+  const typeNote = x.type==='подія' ? 'подія' : (isAd ? `реклама${x.medium&&x.medium.length?' · '+x.medium.join(', '):''}` : '');
   return `<tr data-id="${x.id}">
       <td><input type="checkbox" class="row-select" data-select-id="${x.id}" ${selectedBroadcastIds.has(x.id)?'checked':''}></td>
-      <td class="cell-date">${x.status==='plan' ? '—' : fmtDate(x.date)}</td>
-      <td>${x.channel?`<span class="channel-link" data-channel="${attr(x.channel)}">${esc(x.channel)}</span>`:'—'}${x.type==='подія'?'<div class="cell-note">подія</div>':''}</td>
+      <td class="cell-date">${dateCell}</td>
+      <td>${x.channel?`<span class="channel-link" data-channel="${attr(x.channel)}">${esc(x.channel)}</span>`:'—'}${typeNote?`<div class="cell-note">${esc(typeNote)}</div>`:''}</td>
       <td class="cell-topic">
         ${x.topicLink ? `<a href="${attr(x.topicLink)}" target="_blank" rel="noopener">${esc(x.topic)||'(без назви)'}</a>` : `${esc(x.topic)||'—'}`}
         ${x.note ? `<div class="cell-note">${esc(x.note)}</div>` : ''}
@@ -4292,6 +4436,7 @@ const iconTrash = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" st
 const collapsedPanels = new Set([
   'socialViewsBody','socialSubsBody','socialPostsBody','socialGrowthBody','socialCompareBody',
   'enemyDynamicsBody','enemyChannelsBody','kanbanBoardBody','shootsStatsBody','overviewNewsworthyBody',
+  'overviewAdCampaignsBody',
 ]);
 function isPanelCollapsed(bodyId){ return collapsedPanels.has(bodyId); }
 function applyCollapseVisuals(){
@@ -4324,10 +4469,13 @@ function openBroadcastModal(id){
   document.getElementById('f_status').value = x ? x.status : 'done';
   document.getElementById('f_type').value = x ? (x.type||'ефір') : 'ефір';
   document.getElementById('f_channel').value = x ? x.channel : '';
+  setDateFieldValue('f_dateEnd', 'f_dateEnd_native', x ? (x.dateEnd||'') : '');
+  currentMediumSelection = new Set(x && x.medium ? x.medium : []);
   const linkedEvent = x && x.eventId ? DB.broadcasts.find(b=>b.id===x.eventId) : null;
   document.getElementById('f_eventSearch').value = linkedEvent ? eventPickLabel(linkedEvent) : '';
   document.getElementById('f_eventId').value = linkedEvent ? linkedEvent.id : '';
   updateEventLinkFieldsVisibility();
+  updateAdFieldsVisibility();
   document.getElementById('f_topic').value = x ? x.topic : '';
   document.getElementById('f_topicLink').value = x ? (x.topicLink||'') : '';
   document.getElementById('f_guest').value = x ? x.guest : '';
@@ -4348,6 +4496,8 @@ async function saveBroadcast(){
     status: document.getElementById('f_status').value,
     type: document.getElementById('f_type').value,
     channel: document.getElementById('f_channel').value.trim(),
+    dateEnd: document.getElementById('f_type').value==='реклама' ? getDateFieldValue('f_dateEnd') : null,
+    medium: document.getElementById('f_type').value==='реклама' ? Array.from(currentMediumSelection) : null,
     eventId: document.getElementById('f_eventId').value || null,
     topic: document.getElementById('f_topic').value.trim(),
     topicLink: document.getElementById('f_topicLink').value.trim() || null,
@@ -6645,6 +6795,46 @@ function updateEventLinkFieldsVisibility(){
     renderLinkedBroadcastsList();
   }
 }
+// ad campaigns ('реклама') reshape the same form: a period instead of a single date, a
+// multi-select "носій" list, and a few relabeled fields — everything else (спікер, journalist,
+// note, event linking) is shared as-is with ефіри/події, per the brigade's own request to treat
+// an ad campaign as a regular record type rather than a bolted-on special case
+let currentMediumSelection = new Set();
+function updateAdFieldsVisibility(){
+  const isAd = document.getElementById('f_type').value==='реклама';
+  document.getElementById('f_dateLabel').textContent = isAd ? 'Дата початку' : 'Дата';
+  document.getElementById('f_dateEndWrap').style.display = isAd ? '' : 'none';
+  document.getElementById('f_mediumWrap').style.display = isAd ? '' : 'none';
+  document.getElementById('f_topicLabel').textContent = isAd ? 'Назва рекламної кампанії' : 'Тема';
+  document.getElementById('f_guestLabel').textContent = isAd ? 'Хто бере участь' : 'Спікер';
+  document.getElementById('f_fileLinkLabel').textContent = isAd ? 'Посилання на матеріали' : 'Лінк на вихідний файл';
+  if(isAd) renderMediumCheckboxes();
+}
+function renderMediumCheckboxes(){
+  const container = document.getElementById('f_mediumCheckboxes');
+  container.innerHTML = (DB.adMediums||[]).map(m => `
+    <label style="display:flex; align-items:center; gap:6px; font-size:13.5px; font-weight:400; cursor:pointer;">
+      <input type="checkbox" class="f-medium-checkbox" value="${attr(m)}" ${currentMediumSelection.has(m)?'checked':''}>
+      ${esc(m)}
+    </label>`).join('');
+  container.querySelectorAll('.f-medium-checkbox').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) currentMediumSelection.add(cb.value); else currentMediumSelection.delete(cb.value);
+    });
+  });
+}
+async function addNewMedium(){
+  const input = document.getElementById('f_newMedium');
+  const name = input.value.trim();
+  if(!name) return;
+  if(!(DB.adMediums||[]).some(m=>textsMatch(m,name))){
+    DB.adMediums.push(name);
+    await saveDB(true);
+  }
+  currentMediumSelection.add(DB.adMediums.find(m=>textsMatch(m,name)) || name);
+  input.value = '';
+  renderMediumCheckboxes();
+}
 function renderLinkedBroadcastsList(){
   const list = document.getElementById('f_linkedBroadcastsList');
   if(!editingBroadcastId){ list.innerHTML = ''; return; }
@@ -7045,6 +7235,7 @@ function wireEvents(){
   document.getElementById('broadcastSearch').addEventListener('input', debounce(renderBroadcasts, 120));
   document.getElementById('overviewYearSelect').addEventListener('change', (e)=>{ overviewYear = e.target.value; renderOverview(); });
   wireDateField('f_date', 'f_date_native');
+  wireDateField('f_dateEnd', 'f_dateEnd_native');
   wireDateField('e_date', 'e_date_native');
   document.getElementById('filterYear').addEventListener('change', renderBroadcasts);
   document.getElementById('filterMonth').addEventListener('change', renderBroadcasts);
@@ -7173,7 +7364,9 @@ function wireEvents(){
   }); // single value — no comma-splitting needed
   wireEventPicker('f_eventSearch', 'f_eventId', 'f_eventAutocomplete', ()=>editingBroadcastId);
   wireAddBroadcastToEventPicker();
-  document.getElementById('f_type').addEventListener('change', updateEventLinkFieldsVisibility);
+  document.getElementById('f_type').addEventListener('change', ()=>{ updateEventLinkFieldsVisibility(); updateAdFieldsVisibility(); });
+  document.getElementById('f_addMediumBtn').addEventListener('click', addNewMedium);
+  document.getElementById('f_newMedium').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addNewMedium(); } });
   wireMultiNameAutocomplete('c_media', 'c_mediaAutocomplete', ()=>
     Array.from(new Set(DB.contacts.map(x=>x.media).filter(Boolean))).map(m=>({value:m, label:m}))
   ); // single value
@@ -7312,6 +7505,20 @@ function wireEvents(){
   document.getElementById('clearNewsworthySelectionBtn').addEventListener('click', ()=>{
     selectedNewsworthyIds.clear();
     renderOverviewNewsworthy();
+  });
+  document.getElementById('exportSelectedAdCampaignsBtn').addEventListener('click', ()=>{
+    exportAdCampaignsExcel(selectedAdCampaignIds, 'reklamni-kampanii');
+  });
+  document.getElementById('selectAllAdCampaignsBtn').addEventListener('click', ()=>{
+    document.querySelectorAll('#overviewAdCampaignsGroups .adcampaign-select').forEach(el=>{
+      el.checked = true;
+      selectedAdCampaignIds.add(el.dataset.selectId);
+    });
+    updateAdCampaignSelectionBar();
+  });
+  document.getElementById('clearAdCampaignSelectionBtn').addEventListener('click', ()=>{
+    selectedAdCampaignIds.clear();
+    renderOverviewAdCampaigns();
   });
   document.getElementById('deleteSelectedBroadcastsBtn').addEventListener('click', async ()=>{
     const n = selectedBroadcastIds.size;
