@@ -203,7 +203,10 @@ button{font-family:inherit;}
 .stat-card{
   background:var(--surface); border:1px solid var(--border-soft); border-radius:var(--radius-lg);
   padding:16px 18px; box-shadow:var(--shadow);
+  transition:border-color .15s, transform .1s;
 }
+.stat-card[data-scroll-target]:hover{border-color:#A2762C; transform:translateY(-1px);}
+.stat-card[data-scroll-target]:focus-visible{outline:2px solid #A2762C; outline-offset:2px;}
 .stat-label{font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; font-weight:600;}
 .stat-value{font-family:var(--font-display); font-size:28px; font-weight:600; color:var(--ink);}
 .stat-sub{font-size:11.5px; color:var(--ink-faint); margin-top:3px;}
@@ -479,7 +482,7 @@ select, .select{
         <select id="overviewYearSelect"></select>
       </div>
       <div class="grid-stats" id="statCards"></div>
-      <div class="panel">
+      <div class="panel" id="monthlyActivityPanel">
         <div class="panel-title">Активність по місяцях</div>
         <div class="panel-sub" id="chartMonthlySub">Ефіри та події, за весь час</div>
         <div class="chart-scroll-wrap">
@@ -488,7 +491,7 @@ select, .select{
           </div>
         </div>
       </div>
-      <div class="grid-3b">
+      <div class="grid-3b" id="speakerUnitChannelPanel">
         <div class="panel">
           <div class="panel-title">Спікери</div>
           <div class="panel-sub" id="topGuestsSub">Усі, за кількістю виступів</div>
@@ -512,7 +515,7 @@ select, .select{
           <canvas id="chartYearly"></canvas>
         </div>
       </div>
-      <div class="panel">
+      <div class="panel" id="newsworthyPanel">
         <div class="media-head" data-collapse-target="overviewNewsworthyBody" style="cursor:pointer; padding:0; margin-bottom:0;">
           <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
           <div class="panel-title" style="margin:0;">Інфоприводи</div>
@@ -530,7 +533,7 @@ select, .select{
           <div id="overviewNewsworthyGroups"></div>
         </div>
       </div>
-      <div class="panel">
+      <div class="panel" id="adCampaignsPanel">
         <div class="media-head" data-collapse-target="overviewAdCampaignsBody" style="cursor:pointer; padding:0; margin-bottom:0;">
           <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
           <div class="panel-title" style="margin:0;">Рекламні кампанії</div>
@@ -3915,17 +3918,63 @@ function renderOverview(){
   const eventsScope = b.filter(x=>x.type==='подія' && inYear(x));
   const newsworthyScope = eventsScope.filter(ev=>b.some(x=>x.eventId===ev.id)).length;
 
+  document.getElementById('topGuestsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю виступів' : `${overviewYear} рік, за кількістю виступів`;
+  document.getElementById('topChannelsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
+  document.getElementById('topUnitsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
+  // a "guest" entry only counts as a speaker when it's an actual person — a guest field that
+  // directly names a unit ("Чорний стриж") instead of someone representing it counts toward
+  // Підрозділи only, same split as buildGuestIndex/buildUnitIndex on Хто де був
+  const knownUnits = getKnownUnits();
+  const guestCounts = {}, chanCounts = {}, unitCounts = {};
+  doneScope.forEach(x=>{
+    const unitsHere = new Set();
+    (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(n=>{
+      const contact = findMilitaryContactByName(n);
+      if(contact){
+        guestCounts[n] = (guestCounts[n]||0)+1;
+        if(contact.unit) unitsHere.add(contact.unit.trim());
+        return;
+      }
+      const directUnit = findDirectUnitMention(n, knownUnits);
+      if(directUnit){ unitsHere.add(directUnit); return; }
+      guestCounts[n] = (guestCounts[n]||0)+1;
+    });
+    unitsHere.forEach(u=>{ unitCounts[u] = (unitCounts[u]||0)+1; });
+    if(x.channel){
+      const grp = channelGroupOf(x.channel);
+      chanCounts[grp] = (chanCounts[grp]||0)+1;
+    }
+  });
+
+  // stat cards with a scrollTarget jump to (and, for a collapsible panel, auto-expand) the
+  // section that explains the number — clicking "404 записів" with no obvious destination
+  // of its own sends you to the monthly chart, since that's the closest thing to "show me"
   document.getElementById('statCards').innerHTML = `
-    ${statCard('Записів', recordsScope.length, `${recordsScope.filter(x=>x.status==='done').length} вийшло · ${recordsScope.filter(x=>x.status==='plan').length} заплановано`)}
+    ${statCard('Записів', recordsScope.length, `${recordsScope.filter(x=>x.status==='done').length} вийшло · ${recordsScope.filter(x=>x.status==='plan').length} заплановано`, 'monthlyActivityPanel')}
     ${statCard('Цього місяця', done.filter(x=>monthKey(x.date)===curMonthKey).length, monthLabel(curMonthKey))}
-    ${statCard('Унікальних спікерів', new Set(doneScope.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей')}
-    ${statCard('Унікальних каналів', new Set(doneScope.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа')}
+    ${statCard('Унікальних спікерів', new Set(doneScope.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей', 'speakerUnitChannelPanel')}
+    ${statCard('Унікальних каналів', new Set(doneScope.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа', 'speakerUnitChannelPanel')}
+    ${statCard('Підрозділів', Object.keys(unitCounts).length, 'залучено', 'speakerUnitChannelPanel')}
     ${statCard('Заплановано', plan.length, 'у роботі, очікують')}
     ${statCard('Ефірів', efirScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
     ${statCard('Подій', podiiScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
-    ${statCard('Інфоприводів', newsworthyScope, `з ${eventsScope.length} ${pluralUA(eventsScope.length,'подія','події','подій')}`)}
-    ${statCard('Рекламних кампаній', adScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
+    ${statCard('Інфоприводів', newsworthyScope, `з ${eventsScope.length} ${pluralUA(eventsScope.length,'подія','події','подій')}`, 'newsworthyPanel', 'overviewNewsworthyBody')}
+    ${statCard('Рекламних кампаній', adScope, overviewYear==='all' ? 'за весь час' : overviewYear, 'adCampaignsPanel', 'overviewAdCampaignsBody')}
   `;
+  document.querySelectorAll('#statCards [data-scroll-target]').forEach(el=>{
+    const jump = ()=>{
+      const targetId = el.dataset.scrollTarget;
+      const collapseId = el.dataset.scrollExpand;
+      if(collapseId && collapsedPanels.has(collapseId)){
+        collapsedPanels.delete(collapseId);
+        applyCollapseVisuals();
+      }
+      const target = document.getElementById(targetId);
+      if(target) target.scrollIntoView({behavior:'smooth', block:'start'});
+    };
+    el.addEventListener('click', jump);
+    el.addEventListener('keydown', (e)=>{ if(e.key==='Enter' || e.key===' '){ e.preventDefault(); jump(); } });
+  });
 
   // monthly chart: only months that actually have a recorded entry — no empty gap-filling,
   // so a new month's bar appears the moment a record for it is added, and any accidental
@@ -3993,33 +4042,6 @@ function renderOverview(){
     plugins:[stackedBarValueLabels]
   });
 
-  document.getElementById('topGuestsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю виступів' : `${overviewYear} рік, за кількістю виступів`;
-  document.getElementById('topChannelsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
-  document.getElementById('topUnitsSub').textContent = overviewYear==='all' ? 'Усі, за кількістю матеріалів' : `${overviewYear} рік, за кількістю матеріалів`;
-  // a "guest" entry only counts as a speaker when it's an actual person — a guest field that
-  // directly names a unit ("Чорний стриж") instead of someone representing it counts toward
-  // Підрозділи only, same split as buildGuestIndex/buildUnitIndex on Хто де був
-  const knownUnits = getKnownUnits();
-  const guestCounts = {}, chanCounts = {}, unitCounts = {};
-  doneScope.forEach(x=>{
-    const unitsHere = new Set();
-    (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(n=>{
-      const contact = findMilitaryContactByName(n);
-      if(contact){
-        guestCounts[n] = (guestCounts[n]||0)+1;
-        if(contact.unit) unitsHere.add(contact.unit.trim());
-        return;
-      }
-      const directUnit = findDirectUnitMention(n, knownUnits);
-      if(directUnit){ unitsHere.add(directUnit); return; }
-      guestCounts[n] = (guestCounts[n]||0)+1;
-    });
-    unitsHere.forEach(u=>{ unitCounts[u] = (unitCounts[u]||0)+1; });
-    if(x.channel){
-      const grp = channelGroupOf(x.channel);
-      chanCounts[grp] = (chanCounts[grp]||0)+1;
-    }
-  });
   renderRankPanel('topUnits', unitCounts, 'units');
   renderRankPanel('topGuests', guestCounts, 'guests');
   renderRankPanel('topChannels', chanCounts, 'channels');
@@ -4182,8 +4204,9 @@ function exportAdCampaignsExcel(ids, filenamePrefix){
   }));
   exportRowsExcel(rows, filenamePrefix, 'Рекламні кампанії', [{wch:12},{wch:14},{wch:36},{wch:24},{wch:24},{wch:12},{wch:28},{wch:24},{wch:30},{wch:30}]);
 }
-function statCard(label,val,sub){
-  return `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value">${val}</div><div class="stat-sub">${sub}</div></div>`;
+function statCard(label,val,sub,scrollTarget,scrollExpand){
+  const interactive = scrollTarget ? ` data-scroll-target="${attr(scrollTarget)}"${scrollExpand?` data-scroll-expand="${attr(scrollExpand)}"`:''} style="cursor:pointer;" tabindex="0" role="button"` : '';
+  return `<div class="stat-card"${interactive}><div class="stat-label">${label}</div><div class="stat-value">${val}</div><div class="stat-sub">${sub}</div></div>`;
 }
 function monthLabel(key){
   if(!key) return '';
