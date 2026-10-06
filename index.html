@@ -3951,13 +3951,13 @@ function renderOverview(){
   // of its own sends you to the monthly chart, since that's the closest thing to "show me"
   document.getElementById('statCards').innerHTML = `
     ${statCard('Записів', recordsScope.length, `${recordsScope.filter(x=>x.status==='done').length} вийшло · ${recordsScope.filter(x=>x.status==='plan').length} заплановано`, 'monthlyActivityPanel')}
-    ${statCard('Цього місяця', done.filter(x=>monthKey(x.date)===curMonthKey).length, monthLabel(curMonthKey))}
-    ${statCard('Унікальних спікерів', new Set(doneScope.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей', 'speakerUnitChannelPanel')}
-    ${statCard('Унікальних каналів', new Set(doneScope.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа', 'speakerUnitChannelPanel')}
-    ${statCard('Підрозділів', Object.keys(unitCounts).length, 'залучено', 'speakerUnitChannelPanel')}
-    ${statCard('Заплановано', plan.length, 'у роботі, очікують')}
     ${statCard('Ефірів', efirScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
     ${statCard('Подій', podiiScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
+    ${statCard('Цього місяця', done.filter(x=>monthKey(x.date)===curMonthKey).length, monthLabel(curMonthKey))}
+    ${statCard('Заплановано', plan.length, 'у роботі, очікують')}
+    ${statCard('Унікальних каналів', new Set(doneScope.map(x=>x.channel).filter(Boolean)).size, 'охоплено медіа', 'speakerUnitChannelPanel')}
+    ${statCard('Унікальних спікерів', new Set(doneScope.flatMap(x=>(x.guest||'').split(',').map(s=>s.trim()).filter(Boolean))).size, 'різних людей', 'speakerUnitChannelPanel')}
+    ${statCard('Підрозділів', Object.keys(unitCounts).length, 'залучено', 'speakerUnitChannelPanel')}
     ${statCard('Інфоприводів', newsworthyScope, `з ${eventsScope.length} ${pluralUA(eventsScope.length,'подія','події','подій')}`, 'newsworthyPanel', 'overviewNewsworthyBody')}
     ${statCard('Рекламних кампаній', adScope, overviewYear==='all' ? 'за весь час' : overviewYear, 'adCampaignsPanel', 'overviewAdCampaignsBody')}
   `;
