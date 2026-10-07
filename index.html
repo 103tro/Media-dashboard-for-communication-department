@@ -626,6 +626,8 @@ select, .select{
         <div class="pill" data-mode="unit">За підрозділом</div>
       </div>
       <div class="toolbar" style="margin-top:12px;">
+        <label for="crosstabYearSelect" style="font-size:13px; color:var(--ink-faint);">Рік:</label>
+        <select id="crosstabYearSelect"></select>
         <select id="crosstabSelect" style="min-width:280px;"></select>
         <button class="btn btn-ghost btn-sm" id="selectAllCrosstabBtn" type="button">Вибрати все</button>
       </div>
@@ -730,6 +732,7 @@ select, .select{
           <option value="desc">Спочатку нові</option>
           <option value="asc">Спочатку старі</option>
         </select>
+        <select id="enemyYearSelect"></select>
         <button class="btn btn-ghost btn-sm" id="expandAllEnemyBtn" type="button">Розгорнути все</button>
         <button class="btn btn-ghost btn-sm" id="collapseAllEnemyBtn" type="button">Згорнути все</button>
         <button class="btn btn-ghost btn-sm" id="selectAllEnemyBtn" type="button">Вибрати все</button>
@@ -935,6 +938,10 @@ select, .select{
         </div>
         <div id="shootsStatsBody">
         <div class="panel-sub">Скільки готових матеріалів розміщено — фото і відео окремо</div>
+        <div class="toolbar" style="margin:10px 0 -6px;">
+          <label for="shootsStatsYearSelect" style="font-size:13px; color:var(--ink-faint);">Рік:</label>
+          <select id="shootsStatsYearSelect"></select>
+        </div>
         <div style="margin-top:16px;">
           <div class="chart-label">По місяцях</div>
           <div class="chart-scroll-wrap">
@@ -4604,6 +4611,7 @@ async function deleteBroadcast(){
    CROSSTAB TAB
    ================================================================== */
 let crosstabMode = 'guest';
+let crosstabYear = null; // a year string, or 'all'
 // established units — anything already used as someone's "Підрозділ" in Контакти (внутрішня
 // аудиторія) — so a guest entry that names the unit itself directly ("Чорний стриж"), not a
 // specific person, is recognized as a unit even without its own contact card
@@ -4616,6 +4624,7 @@ function getKnownUnits(){
 function findDirectUnitMention(name, knownUnits){
   return knownUnits.find(u=>textsMatch(name, u) || textsMatch(u, name)) || null;
 }
+function inCrosstabYear(x){ return crosstabYear==='all' || (x.date && x.date.slice(0,4)===crosstabYear); }
 // a "guest" entry is a unit's own name, not a person, when it doesn't match any contact but
 // does match a known unit — those belong in buildUnitIndex/"Підрозділи", not here; anything
 // that matches neither a contact nor a known unit defaults to being treated as a person,
@@ -4624,7 +4633,7 @@ function findDirectUnitMention(name, knownUnits){
 function buildGuestIndex(){
   const idx = {};
   const knownUnits = getKnownUnits();
-  DB.broadcasts.filter(x=>x.status==='done').forEach(x=>{
+  DB.broadcasts.filter(x=>x.status==='done' && inCrosstabYear(x)).forEach(x=>{
     (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(g=>{
       if(!findMilitaryContactByName(g) && findDirectUnitMention(g, knownUnits)) return;
       idx[g] = idx[g] || [];
@@ -4636,7 +4645,7 @@ function buildGuestIndex(){
 function buildUnitIndex(){
   const idx = {};
   const knownUnits = getKnownUnits();
-  DB.broadcasts.filter(x=>x.status==='done').forEach(x=>{
+  DB.broadcasts.filter(x=>x.status==='done' && inCrosstabYear(x)).forEach(x=>{
     const names = (x.guest||'').split(',').map(s=>s.trim()).filter(Boolean);
     const units = new Set();
     names.forEach(n=>{
@@ -4654,7 +4663,7 @@ function buildUnitIndex(){
 }
 function buildChannelIndex(){
   const idx = {};
-  DB.broadcasts.filter(x=>x.status==='done' && x.channel).forEach(x=>{
+  DB.broadcasts.filter(x=>x.status==='done' && x.channel && inCrosstabYear(x)).forEach(x=>{
     const key = x.channel.trim();
     idx[key] = idx[key] || [];
     idx[key].push(x);
@@ -4663,14 +4672,24 @@ function buildChannelIndex(){
 }
 function buildChannelGroupIndex(){
   const idx = {};
-  DB.broadcasts.filter(x=>x.status==='done' && x.channel).forEach(x=>{
+  DB.broadcasts.filter(x=>x.status==='done' && x.channel && inCrosstabYear(x)).forEach(x=>{
     const grp = channelGroupOf(x.channel);
     idx[grp] = idx[grp] || [];
     idx[grp].push(x);
   });
   return idx;
 }
+function populateCrosstabYearSelect(){
+  const curYear = String(new Date().getFullYear());
+  const done = DB.broadcasts.filter(x=>x.status==='done' && x.date);
+  const years = Array.from(new Set([...done.map(x=>x.date.slice(0,4)), curYear])).sort((a,b)=>b-a);
+  if(!crosstabYear || !(crosstabYear==='all' || years.includes(crosstabYear))) crosstabYear = curYear;
+  const sel = document.getElementById('crosstabYearSelect');
+  sel.innerHTML = years.map(y=>`<option value="${y}"${y===crosstabYear?' selected':''}>${y}</option>`).join('')
+    + `<option value="all"${crosstabYear==='all'?' selected':''}>Усі роки</option>`;
+}
 function renderCrosstab(){
+  populateCrosstabYearSelect();
   const idx = crosstabMode==='guest' ? buildGuestIndex()
     : crosstabMode==='channelGroup' ? buildChannelGroupIndex()
     : crosstabMode==='unit' ? buildUnitIndex()
@@ -5466,7 +5485,17 @@ function getEnemyFilters(){
   return {
     q:(document.getElementById('enemySearch').value||'').toLowerCase().trim(),
     sort: document.getElementById('enemySortOrder').value,
+    year: document.getElementById('enemyYearSelect').value,
   };
+}
+let enemyYear = null; // a year string, or 'all'
+function populateEnemyYearSelect(){
+  const curYear = String(new Date().getFullYear());
+  const years = Array.from(new Set([...DB.enemyMentions.filter(x=>x.date).map(x=>x.date.slice(0,4)), curYear])).sort((a,b)=>b-a);
+  if(!enemyYear || !(enemyYear==='all' || years.includes(enemyYear))) enemyYear = curYear;
+  const sel = document.getElementById('enemyYearSelect');
+  sel.innerHTML = years.map(y=>`<option value="${y}"${y===enemyYear?' selected':''}>${y}</option>`).join('')
+    + `<option value="all"${enemyYear==='all'?' selected':''}>Усі роки</option>`;
 }
 // standard Ukrainian plural-form selection by count (1 → one, 2-4 → few, else → many),
 // with the 11-14 exception that keeps double-digit teens in the "many" bucket
@@ -5537,11 +5566,13 @@ function newsworthyRowHtml(ev, linked){
   </div>`;
 }
 function renderEnemyMentions(){
+  populateEnemyYearSelect();
   const f = getEnemyFilters();
   let rows = DB.enemyMentions.slice();
   if(f.q){
     rows = rows.filter(x=>[x.channel,x.message,x.original].some(v=>textsMatch(f.q, v)));
   }
+  if(f.year!=='all') rows = rows.filter(x=>x.date && x.date.slice(0,4)===f.year);
   document.getElementById('enemySub').textContent = `${DB.enemyMentions.length} записів у базі · показано ${rows.length}`;
   document.getElementById('enemyEmpty').style.display = rows.length ? 'none' : 'block';
 
@@ -5605,8 +5636,9 @@ function renderEnemyMentions(){
 function renderEnemyChart(){
   const canvas = document.getElementById('chartEnemy');
   if(!canvas) return;
-  const months = Array.from(new Set(DB.enemyMentions.filter(x=>x.date).map(x=>x.date.slice(0,7)))).sort();
-  const counts = months.map(m=>DB.enemyMentions.filter(x=>x.date && x.date.slice(0,7)===m).length);
+  const scoped = DB.enemyMentions.filter(x=>x.date && (enemyYear==='all' || x.date.slice(0,4)===enemyYear));
+  const months = Array.from(new Set(scoped.map(x=>x.date.slice(0,7)))).sort();
+  const counts = months.map(m=>scoped.filter(x=>x.date.slice(0,7)===m).length);
   const labels = months.map(m=>{ const [y,mm]=m.split('-'); return `${MONTHS_UA_SHORT[+mm-1]} ${y.slice(2)}`; });
   const inner = document.getElementById('chartEnemyInner');
   inner.style.width = Math.max(inner.parentElement.clientWidth||600, months.length*58) + 'px';
@@ -5631,7 +5663,7 @@ function renderEnemyChannelChart(){
   const canvas = document.getElementById('chartEnemyChannel');
   if(!canvas) return;
   const counts = {};
-  DB.enemyMentions.forEach(x=>{ if(x.channel) counts[x.channel]=(counts[x.channel]||0)+1; });
+  DB.enemyMentions.filter(x=>enemyYear==='all' || (x.date && x.date.slice(0,4)===enemyYear)).forEach(x=>{ if(x.channel) counts[x.channel]=(counts[x.channel]||0)+1; });
   const sorted = Object.entries(counts).sort((a,b)=>a[1]-b[1]); // ascending so the biggest ends up on top in a horizontal bar
   const inner = document.getElementById('chartEnemyChannelInner');
   inner.style.height = Math.max(230, sorted.length*34) + 'px';
@@ -6539,16 +6571,28 @@ function wireKanbanDragDrop(){
     });
   });
 }
+let shootsStatsYear = null; // a year string, or 'all'
+function populateShootsStatsYearSelect(){
+  const curYear = String(new Date().getFullYear());
+  const published = DB.shoots.filter(s=>isArchiveStage(s.stage) && s.publishedDate);
+  const years = Array.from(new Set([...published.map(s=>s.publishedDate.slice(0,4)), curYear])).sort((a,b)=>b-a);
+  if(!shootsStatsYear || !(shootsStatsYear==='all' || years.includes(shootsStatsYear))) shootsStatsYear = curYear;
+  const sel = document.getElementById('shootsStatsYearSelect');
+  sel.innerHTML = years.map(y=>`<option value="${y}"${y===shootsStatsYear?' selected':''}>${y}</option>`).join('')
+    + `<option value="all"${shootsStatsYear==='all'?' selected':''}>Усі роки</option>`;
+}
 function renderShootsStats(){
+  populateShootsStatsYearSelect();
   const canvas = document.getElementById('chartShoots');
   if(!canvas) return;
   if(window._chartShoots){ window._chartShoots.destroy(); window._chartShoots=null; }
   if(window._chartShootsYear){ window._chartShootsYear.destroy(); window._chartShootsYear=null; }
   if(isPanelCollapsed('shootsStatsBody')) return;
   const archived = DB.shoots.filter(s=>isArchiveStage(s.stage) && s.publishedDate);
-  const months = Array.from(new Set(archived.map(s=>s.publishedDate.slice(0,7)))).sort();
-  const videoCounts = months.map(m=>archived.filter(s=>s.publishedDate.slice(0,7)===m && s.type!=='фото').length);
-  const photoCounts = months.map(m=>archived.filter(s=>s.publishedDate.slice(0,7)===m && s.type==='фото').length);
+  const monthlyScoped = archived.filter(s=>shootsStatsYear==='all' || s.publishedDate.slice(0,4)===shootsStatsYear);
+  const months = Array.from(new Set(monthlyScoped.map(s=>s.publishedDate.slice(0,7)))).sort();
+  const videoCounts = months.map(m=>monthlyScoped.filter(s=>s.publishedDate.slice(0,7)===m && s.type!=='фото').length);
+  const photoCounts = months.map(m=>monthlyScoped.filter(s=>s.publishedDate.slice(0,7)===m && s.type==='фото').length);
   const labels = months.map(m=>{ const [y,mm]=m.split('-'); return `${MONTHS_UA_SHORT[+mm-1]} ${y.slice(2)}`; });
   const inner = document.getElementById('chartShootsInner');
   inner.style.width = Math.max(inner.parentElement.clientWidth||600, months.length*58) + 'px';
@@ -7341,6 +7385,7 @@ function wireEvents(){
 
   document.getElementById('enemySearch').addEventListener('input', debounce(renderEnemyMentions, 120));
   document.getElementById('enemySortOrder').addEventListener('change', renderEnemyMentions);
+  document.getElementById('enemyYearSelect').addEventListener('change', (e)=>{ enemyYear = e.target.value; renderEnemyMentions(); });
   document.getElementById('addEnemyBtn').addEventListener('click', ()=>openEnemyModal(null));
   document.getElementById('enemyModalClose').addEventListener('click', closeEnemyModal);
   document.getElementById('enemyCancelBtn').addEventListener('click', closeEnemyModal);
@@ -7377,6 +7422,7 @@ function wireEvents(){
   document.getElementById('manageNetworksBtn').addEventListener('click', openNetworkManageModal);
   document.getElementById('manageMetricsBtn').addEventListener('click', openMetricManageModal);
   document.getElementById('addShootBtn').addEventListener('click', ()=>openShootModal(null));
+  document.getElementById('shootsStatsYearSelect').addEventListener('change', (e)=>{ shootsStatsYear = e.target.value; renderShootsStats(); });
   document.getElementById('shootModalClose').addEventListener('click', closeShootModal);
   document.getElementById('shootCancelBtn').addEventListener('click', closeShootModal);
   document.getElementById('shootSaveBtn').addEventListener('click', saveShoot);
@@ -7654,6 +7700,7 @@ function wireEvents(){
       p.classList.add('active'); crosstabMode = p.dataset.mode; renderCrosstab();
     });
   });
+  document.getElementById('crosstabYearSelect').addEventListener('change', (e)=>{ crosstabYear = e.target.value; renderCrosstab(); });
   document.getElementById('manageGroupsBtn').addEventListener('click', openChannelGroupsModal);
   document.getElementById('exportSelectedCrosstabBtn').addEventListener('click', ()=>{
     const sel = document.getElementById('crosstabSelect');
