@@ -569,7 +569,7 @@ select, .select{
       <div class="toolbar">
         <div class="search-box">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-          <input type="text" id="broadcastSearch" placeholder="Пошук за темою, каналом, спікером, журналістом, приміткою…">
+          <input type="text" id="broadcastSearch" placeholder="Пошук за темою, каналом, спікером… (декілька — через кому)">
           <button type="button" class="search-clear hidden" data-clear-for="broadcastSearch" aria-label="Очистити пошук">&times;</button>
         </div>
         <select id="filterYear"></select>
@@ -4404,7 +4404,13 @@ function renderBroadcasts(){
   if(f.year!=='all') rows = rows.filter(x=>x.date && x.date.slice(0,4)===f.year);
   if(f.month!=='all') rows = rows.filter(x=>x.date && parseInt(x.date.slice(5,7),10)===parseInt(f.month,10));
   if(f.q){
-    rows = rows.filter(x=> [x.channel,x.topic,x.guest,x.journalist,x.note].some(v=>textsMatch(f.q, v)) || guestFieldMatchesQuery(x.guest, f.q) || guestFieldMatchesQuery(x.journalist, f.q) );
+    // comma-separated terms are OR'd together — "Чорний стриж, Пунда, Савчук" finds every
+    // record matching any one of them, so you can build up the full picture for a group
+    // of people/units in one search instead of re-running it per name
+    const terms = f.q.split(',').map(t=>t.trim()).filter(Boolean);
+    rows = rows.filter(x=> terms.some(q=>
+      [x.channel,x.topic,x.guest,x.journalist,x.note].some(v=>textsMatch(q, v)) || guestFieldMatchesQuery(x.guest, q) || guestFieldMatchesQuery(x.journalist, q)
+    ));
   }
   document.getElementById('broadcastsSub').textContent = `${DB.broadcasts.length} записів у стрічці · показано ${rows.length}`;
   document.getElementById('broadcastsEmpty').style.display = rows.length ? 'none' : 'block';
