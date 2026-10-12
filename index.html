@@ -46,6 +46,13 @@
   --ink:#22252A;
   --ink-soft:#5C6067;
   --ink-faint:#9295A0;
+  /* fixed (never customized) — --surface itself never changes with a custom theme, so text
+     sitting on it must stay anchored to these, not to the customizable --ink family below,
+     which is free to become light-on-dark for the page background and would otherwise go
+     invisible the moment it's inherited onto a white card */
+  --ink-on-surface:#22252A;
+  --ink-on-surface-soft:#5C6067;
+  --ink-on-surface-faint:#9295A0;
   --brass:#A2762C;
   --brass-light:#C99A45;
   --brass-bg:#F6ECD8;
@@ -198,6 +205,25 @@ button{font-family:inherit;}
 .btn-sm{padding:5px 9px; font-size:12px; border-radius:6px;}
 .btn svg{width:14px; height:14px;}
 
+/* every element whose own background is the (always-white, never customized) --surface
+   re-anchors --ink/--ink-soft/--ink-faint to the fixed --ink-on-surface* trio for itself and
+   all descendants — custom properties inherit, so a panel title, a table cell, a tag, all of
+   it falls back in line automatically without having to touch each individual color:var(--ink)
+   declaration anywhere else in this file. The explicit `color` re-declaration here matters just
+   as much as the custom-property one: color is itself inherited as an already-resolved value,
+   so a descendant that never sets color:var(--ink) on its own (most don't — they just inherit)
+   would otherwise keep whatever color was last resolved further up the tree, ignoring this
+   rescope entirely */
+.panel, .stat-card, .modal, .media-group, .multi-name-popup,
+.quicknav-pill, .btn:not(.btn-ghost), .search-box, select, .select, .pill.active,
+.field input, .field textarea, .field select, .project-row input,
+.kanban-card, .kanban-color-popup, table{
+  --ink:var(--ink-on-surface);
+  --ink-soft:var(--ink-on-surface-soft);
+  --ink-faint:var(--ink-on-surface-faint);
+  color:var(--ink-on-surface);
+}
+
 /* ---------- Cards / stats ---------- */
 .grid-stats{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px;}
 .stat-card{
@@ -205,8 +231,8 @@ button{font-family:inherit;}
   padding:16px 18px; box-shadow:var(--shadow);
   transition:border-color .15s, transform .1s;
 }
-.stat-card[data-scroll-target]:hover{border-color:#A2762C; transform:translateY(-1px);}
-.stat-card[data-scroll-target]:focus-visible{outline:2px solid #A2762C; outline-offset:2px;}
+.stat-card[data-scroll-target]:hover{border-color:var(--brass); transform:translateY(-1px);}
+.stat-card[data-scroll-target]:focus-visible{outline:2px solid var(--brass); outline-offset:2px;}
 .stat-label{font-size:11px; color:var(--ink-soft); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; font-weight:600;}
 .stat-value{font-family:var(--font-display); font-size:28px; font-weight:600; color:var(--ink);}
 .stat-sub{font-size:11.5px; color:var(--ink-faint); margin-top:3px;}
@@ -2142,6 +2168,12 @@ function applyAccentColor(hex){
   root.setProperty('--brass-light', mixWithWhite(hex, 0.32));
   root.setProperty('--brass-bg', mixWithWhite(hex, 0.88));
 }
+// Chart.js draws onto a <canvas> — it can't read CSS custom properties itself, so anywhere a
+// chart used to hardcode the default brass hex reads the live custom accent color through here
+// instead, so a changed Персоналізація color actually shows up on the charts too
+function liveAccentColor(){
+  return (getComputedStyle(document.documentElement).getPropertyValue('--brass').trim()) || '#A2762C';
+}
 function mixWithBlack(hex, amount){
   const {r,g,b} = hexToRgb(hex);
   const mr = Math.round(r * (1-amount));
@@ -4012,7 +4044,7 @@ function renderOverview(){
   monthlyChart = new Chart(ctx, {
     type:'bar',
     data:{ labels, datasets:[
-      { label:'Ефіри', data:efirCounts, backgroundColor:'#A2762C', borderRadius:4, maxBarThickness:30, stack:'s' },
+      { label:'Ефіри', data:efirCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:30, stack:'s' },
       { label:'Події', data:zahidCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:30, stack:'s' },
     ]},
     options:{
@@ -4041,7 +4073,7 @@ function renderOverview(){
   yearlyChart = new Chart(yctx, {
     type:'bar',
     data:{ labels:years, datasets:[
-      { label:'Ефіри', data:efirYearCounts, backgroundColor:'#A2762C', borderRadius:4, maxBarThickness:70, stack:'s' },
+      { label:'Ефіри', data:efirYearCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:70, stack:'s' },
       { label:'Події', data:zahidYearCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:70, stack:'s' },
     ]},
     options:{
@@ -5535,6 +5567,7 @@ function updateNewsworthySelectionBar(){
 // practice tends to cluster in bursts with long gaps, so a literal calendar axis would mostly
 // be empty air
 function eventDailyChartSvg(ev, linked){
+  const accentColor = liveAccentColor();
   const countsByDay = {};
   linked.forEach(b=>{ if(b.date) countsByDay[b.date] = (countsByDay[b.date]||0) + 1; });
   const daySet = new Set(Object.keys(countsByDay));
@@ -5553,7 +5586,7 @@ function eventDailyChartSvg(ev, linked){
     const y = padTop + (chartH - h);
     const isEventDay = day === ev.date;
     const [yy,mm,dd] = day.split('-');
-    return `${isEventDay ? `<line x1="${cx}" y1="${padTop-8}" x2="${cx}" y2="${padTop+chartH+3}" stroke="#B5654A" stroke-width="3" stroke-linecap="round"/>` : ''}${counts[i]>0 ? `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,3)}" rx="2" fill="${isEventDay?'#B5654A':'#A2762C'}"/><text x="${cx}" y="${y-4}" font-size="10" text-anchor="middle" fill="#6b6558">${counts[i]}</text>` : ''}<text x="${cx}" y="${padTop+chartH+15}" font-size="9" text-anchor="middle" fill="#948d7d">${dd}.${mm}</text>`;
+    return `${isEventDay ? `<line x1="${cx}" y1="${padTop-8}" x2="${cx}" y2="${padTop+chartH+3}" stroke="#B5654A" stroke-width="3" stroke-linecap="round"/>` : ''}${counts[i]>0 ? `<rect x="${x}" y="${y}" width="${barW}" height="${Math.max(h,3)}" rx="2" fill="${isEventDay?'#B5654A':accentColor}"/><text x="${cx}" y="${y-4}" font-size="10" text-anchor="middle" fill="#6b6558">${counts[i]}</text>` : ''}<text x="${cx}" y="${padTop+chartH+15}" font-size="9" text-anchor="middle" fill="#948d7d">${dd}.${mm}</text>`;
   }).join('');
   return `<div class="chart-scroll-wrap"><svg viewBox="0 0 ${totalW} ${totalH}" width="${totalW}" height="${totalH}" style="display:block;">${bars}</svg></div>`;
 }
@@ -6183,7 +6216,7 @@ function renderSocialCompareTool(net, months, monthLabels){
           const v = chart.data.datasets[0].data[i];
           if(v==null) return;
           ctx.save();
-          ctx.fillStyle = '#A2762C';
+          ctx.fillStyle = liveAccentColor();
           ctx.font = "700 10px -apple-system, 'Segoe UI', sans-serif";
           ctx.textAlign = 'center';
           ctx.textBaseline = 'bottom';
@@ -6198,7 +6231,7 @@ function renderSocialCompareTool(net, months, monthLabels){
     window._chartSocialCompare = new Chart(document.getElementById('chartSocialCompare').getContext('2d'), {
       type:'line',
       data:{ labels:trimmedLabels, datasets:[
-        { label:`${metricB} / ${metricA}`, data:pct, borderColor:'#A2762C', backgroundColor:'#A2762C', tension:0.3, spanGaps:true, pointRadius:3 },
+        { label:`${metricB} / ${metricA}`, data:pct, borderColor:liveAccentColor(), backgroundColor:liveAccentColor(), tension:0.3, spanGaps:true, pointRadius:3 },
       ]},
       options:{
         maintainAspectRatio:false, responsive:true, layout:{padding:{top:18}},
@@ -6615,7 +6648,7 @@ function renderShootsStats(){
   window._chartShoots = new Chart(canvas.getContext('2d'), {
     type:'bar',
     data:{ labels, datasets:[
-      { label:'Відео', data:videoCounts, backgroundColor:'#A2762C', borderRadius:4, maxBarThickness:44, stack:'s' },
+      { label:'Відео', data:videoCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:44, stack:'s' },
       { label:'Фото', data:photoCounts, backgroundColor:'#467886', borderRadius:4, maxBarThickness:44, stack:'s' },
     ] },
     options:{
@@ -6633,7 +6666,7 @@ function renderShootsStats(){
   window._chartShootsYear = new Chart(document.getElementById('chartShootsYear').getContext('2d'), {
     type:'bar',
     data:{ labels:years, datasets:[
-      { label:'Відео', data:videoYearCounts, backgroundColor:'#A2762C', borderRadius:4, maxBarThickness:70, stack:'s' },
+      { label:'Відео', data:videoYearCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:70, stack:'s' },
       { label:'Фото', data:photoYearCounts, backgroundColor:'#467886', borderRadius:4, maxBarThickness:70, stack:'s' },
     ] },
     options:{
