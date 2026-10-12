@@ -56,9 +56,12 @@
   --brass:#A2762C;
   --brass-light:#C99A45;
   --brass-bg:#F6ECD8;
+  --on-brass:#FFFFFF;
   --navy:#454938;
   --navy-light:rgb(116,118,106);
   --navy-bg:rgb(236,237,235);
+  --on-navy:#EDEFF3;
+  --on-navy-soft:#C9CEDA;
   --green:#3F7D58;
   --green-bg:#E7F1EA;
   --amber:#AD7A0C;
@@ -96,7 +99,7 @@ button{font-family:inherit;}
 .sidebar{
   width:216px; flex:0 0 216px;
   background:var(--navy);
-  color:#EDEFF3;
+  color:var(--on-navy);
   padding:22px 14px;
   display:flex; flex-direction:column;
   position:sticky; top:0; height:100vh;
@@ -108,7 +111,7 @@ button{font-family:inherit;}
 }
 .brand-eyebrow{
   font-family:var(--font-mono); font-size:9.5px; letter-spacing:.06em;
-  text-transform:uppercase; color:var(--brass-light); margin-bottom:4px;
+  text-transform:uppercase; color:var(--on-navy-soft); margin-bottom:4px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
 .brand-logo{width:52px; height:auto; display:block; margin-bottom:12px; filter:drop-shadow(0 1px 3px rgba(0,0,0,.35));}
@@ -117,44 +120,44 @@ button{font-family:inherit;}
 .logo-actions{display:flex; justify-content:center; gap:10px; margin-top:10px;}
 .logo-action-link{
   background:none; border:none; padding:0; cursor:pointer;
-  font-size:10.5px; color:#8D93A3; text-decoration:underline; text-underline-offset:2px;
+  font-size:10.5px; color:var(--on-navy-soft); text-decoration:underline; text-underline-offset:2px;
 }
-.logo-action-link:hover{color:#fff;}
+.logo-action-link:hover{color:var(--on-navy);}
 .logo-action-link.hidden{display:none;}
 .brand-title{
-  font-family:var(--font-display); font-size:18px; line-height:1.25; color:#fff; font-weight:600;
+  font-family:var(--font-display); font-size:18px; line-height:1.25; color:var(--on-navy); font-weight:600;
 }
 .nav{display:flex; flex-direction:column; gap:3px;}
 .nav-item{
   display:flex; align-items:center; gap:10px;
   padding:10px 10px; border-radius:8px; cursor:pointer;
-  color:#C9CEDA; font-size:13.5px; font-weight:500;
+  color:var(--on-navy-soft); font-size:13.5px; font-weight:500;
   transition:background .12s, color .12s;
   user-select:none;
 }
 .nav-item svg{flex:0 0 16px; width:16px; height:16px; opacity:.85;}
-.nav-item:hover{background:rgba(255,255,255,.08); color:#fff;}
-.nav-item.active{background:var(--brass); color:#fff;}
+.nav-item:hover{background:rgba(255,255,255,.08); color:var(--on-navy);}
+.nav-item.active{background:var(--brass); color:var(--on-brass);}
 .nav-item.active svg{opacity:1;}
 .nav-count{
   margin-left:auto; font-family:var(--font-mono); font-size:10.5px;
-  background:rgba(255,255,255,.14); padding:1px 6px; border-radius:20px; color:#fff;
+  background:rgba(255,255,255,.14); padding:1px 6px; border-radius:20px; color:var(--on-navy);
 }
-.nav-item.active .nav-count{background:rgba(255,255,255,.28);}
+.nav-item.active .nav-count{background:rgba(255,255,255,.28); color:var(--on-brass);}
 .sidebar-foot{
   margin-top:auto; padding-top:14px; border-top:1px solid rgba(255,255,255,.14);
-  font-size:11px; color:#8D93A3; line-height:1.6;
+  font-size:11px; color:var(--on-navy-soft); line-height:1.6;
 }
 .sidebar-foot button{
   width:100%; margin-top:8px; padding:7px 8px; border-radius:7px; border:1px solid rgba(255,255,255,.18);
-  background:transparent; color:#C9CEDA; font-size:11px; cursor:pointer; text-align:left;
+  background:transparent; color:var(--on-navy-soft); font-size:11px; cursor:pointer; text-align:left;
 }
-.sidebar-foot button:hover{background:rgba(255,255,255,.08); color:#fff;}
+.sidebar-foot button:hover{background:rgba(255,255,255,.08); color:var(--on-navy);}
 .danger-btn{margin-top:14px !important; border-color:rgba(211,110,80,.4) !important; color:#E5A088 !important;}
-.danger-btn:hover{background:rgba(211,110,80,.15) !important; border-color:#D36E50 !important; color:#fff !important;}
+.danger-btn:hover{background:rgba(211,110,80,.15) !important; border-color:#D36E50 !important; color:var(--on-navy) !important;}
 .storage-info-toggle{
   display:flex; align-items:center; gap:7px; cursor:pointer; user-select:none;
-  padding:4px 2px; border-radius:6px; color:#C9CEDA; font-weight:600;
+  padding:4px 2px; border-radius:6px; color:var(--on-navy-soft); font-weight:600;
 }
 .storage-info-toggle:hover{background:rgba(255,255,255,.08);}
 .storage-info-toggle svg:first-child{width:16px; height:16px;}
@@ -196,8 +199,8 @@ button{font-family:inherit;}
   cursor:pointer; transition:all .12s; white-space:nowrap;
 }
 .btn:hover{border-color:var(--brass); color:var(--brass);}
-.btn-primary{background:var(--brass); border-color:var(--brass); color:#fff;}
-.btn-primary:hover{background:var(--brass-light); border-color:var(--brass-light); color:#fff;}
+.btn-primary{background:var(--brass); border-color:var(--brass); color:var(--on-brass);}
+.btn-primary:hover{background:var(--brass-light); border-color:var(--brass-light); color:var(--on-brass);}
 .btn-ghost{background:transparent; border-color:transparent;}
 .btn-ghost:hover{background:var(--bg-alt); border-color:transparent; color:var(--ink);}
 .btn-danger{color:var(--red);}
@@ -215,7 +218,7 @@ button{font-family:inherit;}
    would otherwise keep whatever color was last resolved further up the tree, ignoring this
    rescope entirely */
 .panel, .stat-card, .modal, .media-group, .multi-name-popup,
-.quicknav-pill, .btn:not(.btn-ghost), .search-box, select, .select, .pill.active,
+.quicknav-pill, .btn:not(.btn-ghost):not(.btn-primary), .search-box, select, .select, .pill.active,
 .field input, .field textarea, .field select, .project-row input,
 .kanban-card, .kanban-color-popup, table{
   --ink:var(--ink-on-surface);
@@ -2167,12 +2170,26 @@ function applyAccentColor(hex){
   root.setProperty('--brass', hex);
   root.setProperty('--brass-light', mixWithWhite(hex, 0.32));
   root.setProperty('--brass-bg', mixWithWhite(hex, 0.88));
+  // nav-item.active and .btn-primary paint this color as a solid background with text on
+  // top — a hardcoded white reads fine against the default gold-brown, but a pale/light
+  // custom accent (pastel yellow, light pink…) would make white text disappear, so the
+  // text color itself is chosen by how light the accent actually is, not assumed in advance
+  root.setProperty('--on-brass', pickTextColor(hex));
 }
 // Chart.js draws onto a <canvas> — it can't read CSS custom properties itself, so anywhere a
 // chart used to hardcode the default brass hex reads the live custom accent color through here
 // instead, so a changed Персоналізація color actually shows up on the charts too
 function liveAccentColor(){
   return (getComputedStyle(document.documentElement).getPropertyValue('--brass').trim()) || '#A2762C';
+}
+// same reasoning as --on-surface-ink: a few hardcoded colors assume what's painted under them
+// stays roughly as dark (sidebar) or as saturated (accent) as the defaults — this picks dark or
+// light text by the actual brightness of whatever custom color was chosen, so it holds for any
+// pick instead of only the ones this file happened to ship tuned for
+function pickTextColor(hex){
+  const {r,g,b} = hexToRgb(hex);
+  const brightness = (r*299 + g*587 + b*114) / 1000;
+  return brightness > 140 ? '#22252A' : '#FFFFFF';
 }
 function mixWithBlack(hex, amount){
   const {r,g,b} = hexToRgb(hex);
@@ -2186,6 +2203,11 @@ function applySidebarColor(hex){
   root.setProperty('--navy', hex);
   root.setProperty('--navy-light', mixWithWhite(hex, 0.25));
   root.setProperty('--navy-bg', mixWithWhite(hex, 0.90));
+  // the sidebar's own text (brand title, nav items) was hardcoded light, assuming the sidebar
+  // stays dark like the default olive — a light custom sidebar color needs dark text instead
+  const onNavy = pickTextColor(hex);
+  root.setProperty('--on-navy', onNavy);
+  root.setProperty('--on-navy-soft', onNavy==='#FFFFFF' ? '#C9CEDA' : mixWithWhite('#22252A', 0.3));
   regenerateFavicon(hex);
 }
 function applyBgColor(hex){
