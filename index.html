@@ -1600,7 +1600,7 @@ select, .select{
       <div id="metricManageGroups" style="display:flex; flex-direction:column; gap:18px; margin-bottom:14px;"></div>
       <div class="field-row" style="align-items:end;">
         <div class="field"><label>Мережа</label><select id="newMetricNetwork"></select></div>
-        <div class="field"><label>Додати новий показник</label><input type="text" id="newMetricName" placeholder="Напр. Охоплення, Залучення…"></div>
+        <div class="field"><label>Додати новий показник</label><input type="text" id="newMetricName" placeholder="Напр. Охоплення, Залучення…" list="metricSuggestions"><datalist id="metricSuggestions"></datalist></div>
       </div>
       <button class="btn btn-ghost btn-sm" id="addMetricBtn" type="button" style="margin-top:8px;">+ Додати показник</button>
     </div>
@@ -1624,7 +1624,7 @@ select, .select{
       <div class="field-hint" style="margin-bottom:12px;">Перейменування застосується одразу до всіх записів цієї мережі. Видалити можна лише мережу без записів.</div>
       <div id="networkManageRows" style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;"></div>
       <div class="field-row">
-        <div class="field"><label>Додати нову мережу</label><input type="text" id="newNetworkName" placeholder="Напр. TikTok, YouTube…"></div>
+        <div class="field"><label>Додати нову мережу</label><input type="text" id="newNetworkName" placeholder="Напр. TikTok, YouTube…" list="networkSuggestions"><datalist id="networkSuggestions"></datalist></div>
       </div>
       <button class="btn btn-ghost btn-sm" id="addNetworkBtn" type="button" style="margin-top:8px;">+ Додати мережу</button>
     </div>
@@ -6365,6 +6365,9 @@ async function deleteSocial(){
 }
 
 /* ---- manage networks (rename cascades, add, delete-if-empty) ---- */
+// offered as quick-pick suggestions (a <datalist>, not a closed list) when adding a network —
+// typing anything else still works exactly as before, this just saves retyping the common ones
+const COMMON_SOCIAL_NETWORKS = ['Facebook','Instagram','TikTok','YouTube','Telegram','X (Twitter)'];
 function openNetworkManageModal(){
   document.getElementById('newNetworkName').value = '';
   renderNetworkManageRows();
@@ -6381,6 +6384,9 @@ function renderNetworkManageRows(){
       <button type="button" class="icon-btn network-delete-btn" data-network="${attr(n)}" title="Видалити мережу" ${count>0?'disabled style="opacity:.3; cursor:not-allowed;"':''}>${iconTrash}</button>
     </div>`;
   }).join('');
+  document.getElementById('networkSuggestions').innerHTML = COMMON_SOCIAL_NETWORKS
+    .filter(n => !DB.socialNetworks.some(existing => existing.toLowerCase()===n.toLowerCase()))
+    .map(n => `<option value="${attr(n)}">`).join('');
   rows.querySelectorAll('.network-delete-btn').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       if(btn.disabled) return;
@@ -6423,6 +6429,16 @@ function addNetworkManageRow(){
 }
 
 /* ---- manage custom metrics, grouped per network since names/sets can differ ---- */
+// same quick-pick idea as COMMON_SOCIAL_NETWORKS — still a plain text field underneath, so
+// anything not on this list can still be typed in by hand
+const COMMON_SOCIAL_METRICS = ['Охоплення','Перегляди','Залучення','Лайки','Коментарі','Поширення'];
+function updateMetricSuggestions(){
+  const net = document.getElementById('newMetricNetwork').value;
+  const existing = (DB.socialMetrics[net]||[]).map(m=>m.toLowerCase());
+  document.getElementById('metricSuggestions').innerHTML = COMMON_SOCIAL_METRICS
+    .filter(m => !existing.includes(m.toLowerCase()))
+    .map(m => `<option value="${attr(m)}">`).join('');
+}
 function openMetricManageModal(){
   document.getElementById('newMetricName').value = '';
   document.getElementById('newMetricNetwork').innerHTML = DB.socialNetworks.map(n=>`<option value="${attr(n)}">${esc(n)}</option>`).join('');
@@ -6459,7 +6475,7 @@ function renderMetricManageRows(){
       renderMetricManageRows();
     });
   });
-  return;
+  updateMetricSuggestions();
 }
 function saveMetricRenames(){
   const inputs = document.querySelectorAll('#metricManageGroups .metric-rename-input');
@@ -7658,6 +7674,7 @@ function wireEvents(){
     socialTableCollapsed = !socialTableCollapsed;
     renderSocialTable();
   });
+  document.getElementById('newMetricNetwork').addEventListener('change', updateMetricSuggestions);
   document.getElementById('metricManageClose').addEventListener('click', closeMetricManageModal);
   document.getElementById('metricManageCancelBtn').addEventListener('click', closeMetricManageModal);
   document.getElementById('addMetricBtn').addEventListener('click', addMetricManageRow);
