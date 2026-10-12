@@ -6407,6 +6407,20 @@ function saveNetworkRenames(){
   });
   return changed;
 }
+// pulled out of the button's own click handler so "Зберегти" can flush a name still sitting
+// in the add-new field too — otherwise typing a name and pressing Зберегти straight away
+// silently drops it, since save only ever looked at rows that "+ Додати мережу" had already
+// turned into a row
+function addNetworkManageRow(){
+  const input = document.getElementById('newNetworkName');
+  const name = input.value.trim();
+  if(!name){ showToast('Впишіть назву мережі'); return; }
+  if(DB.socialNetworks.some(n=>n.toLowerCase()===name.toLowerCase())){ showToast('Така мережа вже є'); return; }
+  DB.socialNetworks.push(name);
+  DB.socialMetrics[name] = [];
+  input.value = '';
+  renderNetworkManageRows();
+}
 
 /* ---- manage custom metrics, grouped per network since names/sets can differ ---- */
 function openMetricManageModal(){
@@ -6478,6 +6492,20 @@ function saveMetricRenames(){
     changed++;
   });
   return changed;
+}
+// same reason as addNetworkManageRow — lets "Зберегти" flush a metric name still sitting in
+// the add-new field instead of silently dropping it
+function addMetricManageRow(){
+  const input = document.getElementById('newMetricName');
+  const net = document.getElementById('newMetricNetwork').value;
+  const name = input.value.trim();
+  if(!name){ showToast('Впишіть назву показника'); return; }
+  if(!net){ showToast('Оберіть мережу'); return; }
+  DB.socialMetrics[net] = DB.socialMetrics[net] || [];
+  if(DB.socialMetrics[net].some(m=>m.toLowerCase()===name.toLowerCase()) || name==='Підписники'){ showToast('Такий показник у цій мережі вже є'); return; }
+  DB.socialMetrics[net].push(name);
+  input.value = '';
+  renderMetricManageRows();
 }
 
 /* ==================================================================
@@ -6889,6 +6917,17 @@ function saveStageManage(){
       if(idx>=0) DB.shootStages[idx] = val;
     }
   });
+}
+// same reason as addNetworkManageRow — lets "Зберегти" flush a stage name still sitting in
+// the add-new field instead of silently dropping it
+function addStageManageRow(){
+  const input = document.getElementById('newStageName');
+  const name = input.value.trim();
+  if(!name){ showToast('Впишіть назву етапу'); return; }
+  if(DB.shootStages.some(s=>s.toLowerCase()===name.toLowerCase())){ showToast('Такий етап вже є'); return; }
+  DB.shootStages.splice(DB.shootStages.length-1, 0, name); // insert before the archive stage
+  input.value = '';
+  renderStageManageRows();
 }
 
 /* ---- guest <-> military contact cross-linking (from the Ефіри table) ---- */
@@ -7587,16 +7626,10 @@ function wireEvents(){
   });
   document.getElementById('stageManageClose').addEventListener('click', closeStageManageModal);
   document.getElementById('stageManageCancelBtn').addEventListener('click', closeStageManageModal);
-  document.getElementById('addStageBtn').addEventListener('click', ()=>{
-    const input = document.getElementById('newStageName');
-    const name = input.value.trim();
-    if(!name){ showToast('Впишіть назву етапу'); return; }
-    if(DB.shootStages.some(s=>s.toLowerCase()===name.toLowerCase())){ showToast('Такий етап вже є'); return; }
-    DB.shootStages.splice(DB.shootStages.length-1, 0, name); // insert before the archive stage
-    input.value = '';
-    renderStageManageRows();
-  });
+  document.getElementById('addStageBtn').addEventListener('click', addStageManageRow);
+  document.getElementById('newStageName').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addStageManageRow(); } });
   document.getElementById('stageManageSaveBtn').addEventListener('click', async ()=>{
+    if(document.getElementById('newStageName').value.trim()) addStageManageRow();
     saveStageManage();
     await saveDB(true);
     renderNav(); renderShoots();
@@ -7627,19 +7660,10 @@ function wireEvents(){
   });
   document.getElementById('metricManageClose').addEventListener('click', closeMetricManageModal);
   document.getElementById('metricManageCancelBtn').addEventListener('click', closeMetricManageModal);
-  document.getElementById('addMetricBtn').addEventListener('click', ()=>{
-    const input = document.getElementById('newMetricName');
-    const net = document.getElementById('newMetricNetwork').value;
-    const name = input.value.trim();
-    if(!name){ showToast('Впишіть назву показника'); return; }
-    if(!net){ showToast('Оберіть мережу'); return; }
-    DB.socialMetrics[net] = DB.socialMetrics[net] || [];
-    if(DB.socialMetrics[net].some(m=>m.toLowerCase()===name.toLowerCase()) || name==='Підписники'){ showToast('Такий показник у цій мережі вже є'); return; }
-    DB.socialMetrics[net].push(name);
-    input.value = '';
-    renderMetricManageRows();
-  });
+  document.getElementById('addMetricBtn').addEventListener('click', addMetricManageRow);
+  document.getElementById('newMetricName').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addMetricManageRow(); } });
   document.getElementById('metricManageSaveBtn').addEventListener('click', async ()=>{
+    if(document.getElementById('newMetricName').value.trim()) addMetricManageRow();
     saveMetricRenames();
     await saveDB(true);
     renderSocial();
@@ -7648,17 +7672,10 @@ function wireEvents(){
   wireBackdropClose('metricManageModal', closeMetricManageModal);
   document.getElementById('networkManageClose').addEventListener('click', closeNetworkManageModal);
   document.getElementById('networkManageCancelBtn').addEventListener('click', closeNetworkManageModal);
-  document.getElementById('addNetworkBtn').addEventListener('click', ()=>{
-    const input = document.getElementById('newNetworkName');
-    const name = input.value.trim();
-    if(!name){ showToast('Впишіть назву мережі'); return; }
-    if(DB.socialNetworks.some(n=>n.toLowerCase()===name.toLowerCase())){ showToast('Така мережа вже є'); return; }
-    DB.socialNetworks.push(name);
-    DB.socialMetrics[name] = [];
-    input.value = '';
-    renderNetworkManageRows();
-  });
+  document.getElementById('addNetworkBtn').addEventListener('click', addNetworkManageRow);
+  document.getElementById('newNetworkName').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addNetworkManageRow(); } });
   document.getElementById('networkManageSaveBtn').addEventListener('click', async ()=>{
+    if(document.getElementById('newNetworkName').value.trim()) addNetworkManageRow();
     saveNetworkRenames();
     await saveDB(true);
     renderNav(); renderSocial();
@@ -7838,6 +7855,7 @@ function wireEvents(){
   document.getElementById('addUnitBtn').addEventListener('click', addUnitManageRow);
   document.getElementById('newUnitName').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addUnitManageRow(); } });
   document.getElementById('unitManageSaveBtn').addEventListener('click', async ()=>{
+    if(document.getElementById('newUnitName').value.trim()) addUnitManageRow();
     const changed = saveUnitRenames();
     if(changed){ await saveDB(true); renderNav(); renderMilitaryContacts(); }
     closeUnitManageModal();
