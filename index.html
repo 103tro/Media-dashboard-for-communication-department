@@ -279,6 +279,7 @@ thead th{
 tbody td{padding:10px 12px; border-bottom:1px solid var(--border-soft); vertical-align:top;}
 tbody tr:hover{background:var(--bg);}
 tbody tr:last-child td{border-bottom:none;}
+.row-openable{cursor:pointer;}
 .cell-date{font-family:var(--font-mono); font-size:12px; color:var(--ink-soft); white-space:nowrap;}
 .cell-topic{max-width:340px;}
 .cell-topic a{color:var(--ink); text-decoration:none;}
@@ -4442,7 +4443,7 @@ function broadcastRowHtml(x){
   const isAd = x.type==='реклама';
   const dateCell = x.status==='plan' ? '—' : (isAd && x.dateEnd ? `${fmtDate(x.date)}–${fmtDate(x.dateEnd)}` : fmtDate(x.date));
   const typeNote = x.type==='подія' ? 'подія' : (isAd ? `реклама${x.medium&&x.medium.length?' · '+x.medium.join(', '):''}` : '');
-  return `<tr data-id="${x.id}">
+  return `<tr data-id="${x.id}" class="row-openable">
       <td><input type="checkbox" class="row-select" data-select-id="${x.id}" ${selectedBroadcastIds.has(x.id)?'checked':''}></td>
       <td class="cell-date">${dateCell}</td>
       <td>${x.channel?`<span class="channel-link" data-channel="${attr(x.channel)}">${esc(x.channel)}</span>`:'—'}${typeNote?`<div class="cell-note">${esc(typeNote)}</div>`:''}</td>
@@ -4554,6 +4555,15 @@ function renderBroadcasts(){
   });
   container.querySelectorAll('.guest-link').forEach(el=>{
     el.addEventListener('click', (e)=>{ e.stopPropagation(); openGuestInfoModal(el.dataset.guest); });
+  });
+  // clicking empty space on a row opens the same card the pencil does — view and edit are the
+  // same screen here, so this is just a bigger, more natural click target; the topic link and
+  // material icons stay as external links (stopped below) rather than also popping the card
+  container.querySelectorAll('.cell-topic a, .linkicon').forEach(el=>{
+    el.addEventListener('click', (e)=>e.stopPropagation());
+  });
+  container.querySelectorAll('tr.row-openable').forEach(el=>{
+    el.addEventListener('click', ()=>openBroadcastModal(el.dataset.id));
   });
   updateBroadcastSelectionBar();
 }
@@ -7246,7 +7256,7 @@ function wireDelegatedAutocomplete(containerId, inputSelector, getOptionsFn, mul
     else if(e.key==='Escape'){ popup.classList.add('hidden'); }
   });
 }
-function wireMultiNameAutocomplete(inputId, popupId, getOptionsFn, multiValue){
+function wireMultiNameAutocomplete(inputId, popupId, getOptionsFn, multiValue, onPick){
   const input = document.getElementById(inputId);
   const popup = document.getElementById(popupId);
   if(!input || !popup) return;
@@ -7268,6 +7278,7 @@ function wireMultiNameAutocomplete(inputId, popupId, getOptionsFn, multiValue){
     popup.classList.add('hidden');
     popup.innerHTML = '';
     input.focus();
+    if(onPick) onPick(el.dataset.value);
   }
   function highlight(){
     popup.querySelectorAll('.multi-name-option').forEach((el,i)=>el.classList.toggle('active', i===activeIndex));
@@ -7609,7 +7620,15 @@ function wireEvents(){
   document.getElementById('f_addMediumBtn').addEventListener('click', addNewMedium);
   document.getElementById('f_newMedium').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addNewMedium(); } });
   wireMultiNameAutocomplete('c_media', 'c_mediaAutocomplete', ()=>
-    Array.from(new Set(DB.contacts.map(x=>x.media).filter(Boolean))).map(m=>({value:m, label:m}))
+    Array.from(new Set(DB.contacts.map(x=>x.media).filter(Boolean))).map(m=>({value:m, label:m})),
+    false,
+    (pickedMedia)=>{
+      // picking an existing media from the list means "another contact at this same
+      // outlet" — carry its region over too, so a new journalist at an outlet you've
+      // already added doesn't make you retype where that outlet even is
+      const existing = DB.contacts.find(c=>(c.media||'').toLowerCase()===pickedMedia.toLowerCase() && c.region);
+      if(existing) document.getElementById('c_region').value = existing.region;
+    }
   ); // single value
   wireMultiNameAutocomplete('c_region', 'c_regionAutocomplete', ()=>
     allRegions().map(r=>({value:r, label:r}))
