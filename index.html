@@ -540,7 +540,7 @@ select, .select{
       </div>
       <div class="panel">
         <div class="panel-title">Активність по роках</div>
-        <div class="panel-sub">Ефіри та події, підсумок за кожен рік</div>
+        <div class="panel-sub" id="chartYearlySub">Ефіри та події, підсумок за кожен рік</div>
         <div class="chart-inner">
           <canvas id="chartYearly"></canvas>
         </div>
@@ -4050,26 +4050,31 @@ function renderOverview(){
   // monthly chart: only months that actually have a recorded entry — no empty gap-filling,
   // so a new month's bar appears the moment a record for it is added, and any accidental
   // empty month never shows up as a blank bar. Scoped to the selected year.
-  document.getElementById('chartMonthlySub').textContent = `Ефіри та події, ${periodLabel}`;
   const datedScope = doneScope.filter(x=>x.date);
   const keys = datedScope.length
     ? Array.from(new Set(datedScope.map(x=>x.date.slice(0,7)))).sort()
     : [curMonthKey];
   const efirCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='ефір').length);
   const zahidCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='подія').length);
+  const adMonthCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='реклама').length);
+  const hasAdMonthData = adMonthCounts.some(c=>c>0);
+  document.getElementById('chartMonthlySub').textContent = hasAdMonthData
+    ? `Ефіри, події та рекламні кампанії, ${periodLabel}` : `Ефіри та події, ${periodLabel}`;
   const labels = keys.map(k=>monthLabel(k));
   const PX_PER_MONTH = 58;
   const inner = document.getElementById('chartMonthlyInner');
   inner.style.width = Math.max(inner.parentElement.clientWidth || 600, keys.length * PX_PER_MONTH) + 'px';
   const ctx = document.getElementById('chartMonthly').getContext('2d');
   if(monthlyChart) monthlyChart.destroy();
-  const monthlyTotals = keys.map((k,i)=>efirCounts[i]+zahidCounts[i]);
+  const monthlyTotals = keys.map((k,i)=>efirCounts[i]+zahidCounts[i]+adMonthCounts[i]);
+  const monthlyDatasets = [
+    { label:'Ефіри', data:efirCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:30, stack:'s' },
+    { label:'Події', data:zahidCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:30, stack:'s' },
+  ];
+  if(hasAdMonthData) monthlyDatasets.push({ label:'Рекламні кампанії', data:adMonthCounts, backgroundColor:'#467886', borderRadius:4, maxBarThickness:30, stack:'s' });
   monthlyChart = new Chart(ctx, {
     type:'bar',
-    data:{ labels, datasets:[
-      { label:'Ефіри', data:efirCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:30, stack:'s' },
-      { label:'Події', data:zahidCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:30, stack:'s' },
-    ]},
+    data:{ labels, datasets:monthlyDatasets },
     options:{
       maintainAspectRatio:false,
       plugins:{
@@ -4090,15 +4095,21 @@ function renderOverview(){
   const years = datedDone.length ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,4)))).sort() : [];
   const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='ефір').length);
   const zahidYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='подія').length);
+  const adYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='реклама').length);
+  const hasAdYearData = adYearCounts.some(c=>c>0);
+  document.getElementById('chartYearlySub').textContent = hasAdYearData
+    ? 'Ефіри, події та рекламні кампанії, підсумок за кожен рік' : 'Ефіри та події, підсумок за кожен рік';
   const yctx = document.getElementById('chartYearly').getContext('2d');
   if(yearlyChart) yearlyChart.destroy();
-  const yearlyTotals = years.map((y,i)=>efirYearCounts[i]+zahidYearCounts[i]);
+  const yearlyTotals = years.map((y,i)=>efirYearCounts[i]+zahidYearCounts[i]+adYearCounts[i]);
+  const yearlyDatasets = [
+    { label:'Ефіри', data:efirYearCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:70, stack:'s' },
+    { label:'Події', data:zahidYearCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:70, stack:'s' },
+  ];
+  if(hasAdYearData) yearlyDatasets.push({ label:'Рекламні кампанії', data:adYearCounts, backgroundColor:'#467886', borderRadius:4, maxBarThickness:70, stack:'s' });
   yearlyChart = new Chart(yctx, {
     type:'bar',
-    data:{ labels:years, datasets:[
-      { label:'Ефіри', data:efirYearCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:70, stack:'s' },
-      { label:'Події', data:zahidYearCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:70, stack:'s' },
-    ]},
+    data:{ labels:years, datasets:yearlyDatasets },
     options:{
       maintainAspectRatio:false,
       plugins:{
