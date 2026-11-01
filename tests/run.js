@@ -187,6 +187,19 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       eq(r.hiddenTabs, [], 'hiddenTabs');
       await p.close();
     });
+    await test('normalizeGuestField чистить список гостей і нічого не підміняє', async () => {
+      const p = await openPage(ctx, url, null);
+      const r = await p.evaluate(() => ({
+        a: normalizeGuestField('  Перший  ,, Другий ,'),
+        b: normalizeGuestField('Евген Прізвище'),   // раніше "відомі варіанти" виправлялись; тепер текст лишається як ввели
+        empty: normalizeGuestField(''), nul: normalizeGuestField(null),
+        noAliasTable: typeof GUEST_ALIASES,
+      }));
+      eq(r.a, 'Перший, Другий'); eq(r.b, 'Евген Прізвище');
+      eq([r.empty, r.nul], ['', null]);
+      eq(r.noAliasTable, 'undefined', 'таблиця з іменами має бути прибрана з коду');
+      await p.close();
+    });
     await test('міграція ідемпотентна: повторне завантаження нічого не змінює', async () => {
       const p = await openPage(ctx, url);   // дані вже мігровані й збережені попереднім тестом? — зберігаємо явно
       await p.evaluate(() => saveDB(false));
