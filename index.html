@@ -2017,13 +2017,43 @@ let activeTab = 'overview';
 
 function uid(prefix){ return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
 
-function showToast(msg){
+function showToast(msg, ms){
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=>t.classList.remove('show'), 2200);
+  showToast._t = setTimeout(()=>t.classList.remove('show'), ms || 2200);
 }
+
+/* ---------------- помилки ----------------
+   Один спосіб повідомити про збій: зрозумілий текст користувачу (довше, ніж звичайний тост,
+   щоб встигнути прочитати) і технічні деталі в консоль. Тихо ковтати помилку не можна. */
+const ERROR_TOAST_MS = 6000;
+function reportError(userMsg, err){
+  console.error(userMsg, err);
+  showToast(userMsg, ERROR_TOAST_MS);
+}
+// Виконує асинхронну дію; якщо вона впала — показує userMsg замість мовчазного "зависання".
+async function guarded(userMsg, fn){
+  try{ return await fn(); }
+  catch(err){ reportError(userMsg, err); }
+}
+// Останній рубіж: помилка, яку ніхто не перехопив, не лишається непоміченою. Повідомлення
+// не частіше за раз на кілька секунд, щоб серія однакових збоїв не засипала екран.
+let lastGlobalErrorAt = 0;
+function reportUnexpected(err){
+  console.error('unexpected error', err);
+  const now = Date.now();
+  if(now - lastGlobalErrorAt < 5000) return;
+  lastGlobalErrorAt = now;
+  showToast('Щось пішло не так. Повторіть дію; якщо помилка повторюється — завантажте резервну копію (Налаштування).', ERROR_TOAST_MS);
+}
+window.addEventListener('error', (e)=>{
+  // безневинне сповіщення браузера, не збій коду
+  if(e && /ResizeObserver loop/i.test(e.message || '')) return;
+  reportUnexpected(e && (e.error || e.message));
+});
+window.addEventListener('unhandledrejection', (e)=>reportUnexpected(e && e.reason));
 
 /* ---------------- storage adapter ----------------
    Prefer Claude's artifact storage (window.storage) when the dashboard is
@@ -2358,8 +2388,9 @@ function readExcelFile(file){
         // each cell's number format, so date cells are recognised below and turned into
         // YYYY-MM-DD straight from the Excel serial number, with no timezone involved at all.
         const wb = XLSX.read(data, {type:'array', cellDates:false, cellNF:true});
+        if(!wb.SheetNames || !wb.SheetNames.length){ reject(new Error('empty-workbook')); return; }
         const sheet = wb.Sheets[wb.SheetNames[0]];
-        if(!sheet['!ref']){ resolve([]); return; }
+        if(!sheet || !sheet['!ref']){ resolve([]); return; }
         // Build rows straight from raw cells (not sheet_to_json) so each row's
         // values and its embedded hyperlinks always come from the exact same
         // physical spreadsheet row — sheet_to_json can silently skip blank rows,
@@ -2397,7 +2428,7 @@ function readExcelFile(file){
         resolve(rows);
       }catch(err){ reject(err); }
     };
-    reader.onerror = reject;
+    reader.onerror = ()=>reject(reader.error || new Error('read-failed'));
     reader.readAsArrayBuffer(file);
   });
 }
@@ -2422,7 +2453,15 @@ async function handleImportFile(kind, file){
   if(typeof XLSX === 'undefined'){ showToast('Бібліотека Excel ще не завантажилась — спробуйте за кілька секунд'); return; }
   let rows;
   try{ rows = await readExcelFile(file); }
-  catch(e){ showToast('Не вдалося прочитати файл'); return; }
+  catch(e){
+    const detail = String((e && e.message) || e);
+    reportError(
+      /password|encrypt/i.test(detail) ? 'Файл захищений паролем або пошкоджений. Зніміть захист, перевірте файл і спробуйте ще раз'
+      : detail === 'empty-workbook'    ? 'У файлі немає жодного аркуша'
+      : 'Не вдалося прочитати файл. Перевірте, що це Excel (.xlsx, .xls) або .csv і що він не пошкоджений',
+      e);
+    return;
+  }
   if(!rows.length){ showToast('У файлі немає рядків'); return; }
   const columns = Object.keys(rows[0]);
   const fields = kind==='contacts' ? CONTACT_IMPORT_FIELDS : kind==='military' ? MILITARY_IMPORT_FIELDS : kind==='social' ? SOCIAL_IMPORT_FIELDS : BROADCAST_IMPORT_FIELDS;
@@ -3479,11 +3518,24 @@ function wrapPptxForSafeText(pptx){
 // the file, the same way the fixes above do for their own defects.
 async function writePptxWithTableRefFix(pptx, fname){
   const buf = await pptx.write('arraybuffer');
-  if(typeof JSZip === 'undefined'){
-    // JSZip didn't load for some reason — fall back to the unfixed file rather than failing outright
-    await pptx.writeFile({fileName:fname});
-    return;
+  let blob = null;
+  if(typeof JSZip !== 'undefined'){
+    try{ blob = await patchPptxPackage(buf); }
+    catch(err){ console.error('pptx patch failed, saving the unpatched file', err); }
   }
+  // JSZip didn't load, or patching failed — a file PowerPoint may offer to repair is better
+  // than no report at all
+  if(!blob) blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.presentationml.presentation'});
+  saveBlobAs(blob, fname);
+}
+function saveBlobAs(blob, fname){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = fname;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+async function patchPptxPackage(buf){
   const outerZip = await JSZip.loadAsync(buf);
   const embeddingPaths = Object.keys(outerZip.files).filter(p=>/^ppt\/embeddings\/.*\.xlsx$/.test(p));
   for(const path of embeddingPaths){
@@ -3515,12 +3567,7 @@ async function writePptxWithTableRefFix(pptx, fname){
     });
     if(fixedCtXml !== ctXml) outerZip.file('[Content_Types].xml', fixedCtXml);
   }
-  const outBuf = await outerZip.generateAsync({type:'blob'});
-  const url = URL.createObjectURL(outBuf);
-  const a = document.createElement('a');
-  a.href = url; a.download = fname;
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+  return outerZip.generateAsync({type:'blob'});
 }
 function updateStorageStatusUI(){
   const el = document.getElementById('storageStatus');
@@ -4411,7 +4458,7 @@ function monthLabel(key){
 function renderRankPanel(containerId, counts, stateKey){
   const container = document.getElementById(containerId);
   const entries = Object.entries(counts).sort((a,b)=>b[1]-a[1] || a[0].localeCompare(b[0],'uk'));
-  if(!entries.length){ container.innerHTML = `<div class="empty-state" style="padding:20px 0;">Немає даних</div>`; return; }
+  if(!entries.length){ container.innerHTML = emptyStateHtml('Немає даних'); return; }
   const expanded = rankExpanded[stateKey];
   const shown = expanded ? entries : entries.slice(0,10);
   const max = entries[0][1];
@@ -4432,6 +4479,17 @@ function renderRankPanel(containerId, counts, stateKey){
 }
 function esc(s){
   return (s||'').toString().replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+// Типові шматки розмітки, що повторювались десятки разів. Усе, що йде з даних, екранується тут,
+// тож у місцях виклику не треба пам'ятати про esc()/safeHref().
+function emptyStateHtml(text){
+  return `<div class="empty-state" style="padding:20px 0;">${esc(text)}</div>`;
+}
+// посилання, що відкривається в новій вкладці, якщо адреса безпечна; інакше — просто текст
+function extLink(url, text){
+  return safeUrl(url)
+    ? `<a href="${safeHref(url)}" target="_blank" rel="noopener">${esc(text)}</a>`
+    : esc(text);
 }
 
 /* ==================================================================
@@ -4993,7 +5051,7 @@ function renderChannelGroupsRows(filterText){
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('channelGroupsRows');
   const filtered = stats.filter(([ch])=> !q || ch.toLowerCase().includes(q) || (channelGroupOf(ch)||'').toLowerCase().includes(q));
-  if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
+  if(!filtered.length){ rows.innerHTML = emptyStateHtml('Нічого не знайдено'); return; }
 
   // cluster by current group assignment so members of a group sit together —
   // no need to hunt through the whole alphabetical list to see what's grouped with what
@@ -5058,7 +5116,7 @@ function renderMediaManageRows(filterText){
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('mediaManageRows');
   const filtered = stats.filter(([m])=> !q || m.toLowerCase().includes(q));
-  if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
+  if(!filtered.length){ rows.innerHTML = emptyStateHtml('Нічого не знайдено'); return; }
   rows.innerHTML = filtered.map(([m,count])=>`
     <div class="field-row" style="grid-template-columns:1fr 1fr; align-items:center;">
       <div style="font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);">${count} контакт(ів)</div>
@@ -5104,7 +5162,7 @@ function renderGuestManageRows(filterText){
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('guestManageRows');
   const filtered = stats.filter(([g])=> !q || g.toLowerCase().includes(q));
-  if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
+  if(!filtered.length){ rows.innerHTML = emptyStateHtml('Нічого не знайдено'); return; }
   rows.innerHTML = filtered.map(([g,count])=>`
     <div class="field-row" style="grid-template-columns:1fr 1fr; align-items:center;">
       <div style="font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);">${count} ефір(ів)</div>
@@ -5161,7 +5219,7 @@ function renderChannelRenameRows(filterText){
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('channelRenameRows');
   const filtered = stats.filter(([ch])=> !q || ch.toLowerCase().includes(q));
-  if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
+  if(!filtered.length){ rows.innerHTML = emptyStateHtml('Нічого не знайдено'); return; }
   rows.innerHTML = filtered.map(([ch,count])=>`
     <div class="field-row" style="grid-template-columns:1fr 1fr; align-items:center;">
       <div style="font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);">${count} ефір(ів)</div>
@@ -5283,7 +5341,7 @@ function renderContacts(){
       <div class="media-head ${collapsed?'collapsed':''}" data-media="${attr(g.media)}">
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
         <input type="checkbox" class="group-select-checkbox" data-group-key="${attr(g.media)}" title="Вибрати все медіа" style="margin:0 2px;">
-        <div class="media-name">${safeUrl(g.mediaLink)?`<a href="${safeHref(g.mediaLink)}" target="_blank" rel="noopener">${esc(g.media)}</a>`:esc(g.media)}</div>
+        <div class="media-name">${extLink(g.mediaLink, g.media)}</div>
         <span class="region-badge" style="background:${rc.bg}; color:${rc.fg};">${esc(g.region)}</span>
         <span class="media-badge">${g.items.length}</span>
       </div>
@@ -5327,7 +5385,7 @@ function contactRowHtml(c, opts){
   if(c.phone) meta.push(`<span class="copy-phone" data-phone="${attr(c.phone)}" title="Копіювати">☎ ${esc(c.phone)}</span>`);
   if(c.email) meta.push(`<a href="mailto:${attr(c.email)}">✉ ${esc(c.email)}</a>`);
   const projects = c.projects || [];
-  const projectLines = projects.map(p=>`<div class="contact-project-line">${safeUrl(p.link)?`<a href="${safeHref(p.link)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name)}</div>`).join('');
+  const projectLines = projects.map(p=>`<div class="contact-project-line">${extLink(p.link, p.name)}</div>`).join('');
   const checkbox = opts.selectable===false ? '' : `<input type="checkbox" class="contact-select" data-select-id="${attr(c.id)}" ${selectedContactIds.has(c.id)?'checked':''} style="margin-top:2px;">`;
   return `<div class="contact-row">
     ${checkbox}
@@ -5460,7 +5518,7 @@ function militaryContactRowHtml(c, opts){
       ${unitLine}
       ${c.position ? `<div class="contact-position">${esc(c.position)}</div>`:(opts.verbose ? `<div class="contact-position">${faint('посада не вказана')}</div>`:'')}
       ${meta.length?`<div class="contact-meta">${meta.join('')}</div>`:''}
-      ${c.note ? `<div class="contact-note">${safeUrl(c.noteLink)?`<a href="${safeHref(c.noteLink)}" target="_blank" rel="noopener">${esc(c.note)}</a>`:esc(c.note)}</div>`:(opts.verbose ? `<div class="contact-note">${faint('без примітки')}</div>`:'')}
+      ${c.note ? `<div class="contact-note">${extLink(c.noteLink, c.note)}</div>`:(opts.verbose ? `<div class="contact-note">${faint('без примітки')}</div>`:'')}
     </div>
     <div class="row-actions">
       <button class="icon-btn copy-contact-btn" data-copy-text="${attr(contactCopyText(c, 'military'))}" title="Скопіювати контакт">${iconCopy}</button>
@@ -5629,7 +5687,7 @@ function renderUnitManageRows(filterText){
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('unitManageRows');
   const filtered = stats.filter(([u])=> !q || u.toLowerCase().includes(q));
-  if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
+  if(!filtered.length){ rows.innerHTML = emptyStateHtml('Нічого не знайдено'); return; }
   rows.innerHTML = filtered.map(([u,count,isExtra])=>unitManageRowHtml(u,count,isExtra)).join('');
   wireUnitManageRowRemoveButtons();
 }
@@ -5696,8 +5754,8 @@ function enemyRowHtml(x){
     <input type="checkbox" class="enemy-select" data-select-id="${attr(x.id)}" ${selectedEnemyIds.has(x.id)?'checked':''} style="margin-top:2px;">
     <div class="contact-main">
       <div class="contact-name">${fmtDate(x.date)} · ${esc(x.channel)||'—'}</div>
-      ${x.message ? `<div class="contact-note" style="font-style:normal; color:var(--ink);">${safeUrl(x.messageLink)?`<a href="${safeHref(x.messageLink)}" target="_blank" rel="noopener">${esc(x.message)}</a>`:esc(x.message)}</div>`:''}
-      ${x.original ? `<div class="contact-note">Оригінал: ${safeUrl(x.originalLink)?`<a href="${safeHref(x.originalLink)}" target="_blank" rel="noopener">${esc(x.original)}</a>`:esc(x.original)}</div>`:''}
+      ${x.message ? `<div class="contact-note" style="font-style:normal; color:var(--ink);">${extLink(x.messageLink, x.message)}</div>`:''}
+      ${x.original ? `<div class="contact-note">Оригінал: ${extLink(x.originalLink, x.original)}</div>`:''}
     </div>
     <div class="row-actions">
       <button class="icon-btn" data-edit-enemy="${attr(x.id)}" title="Редагувати">${iconEdit}</button>
@@ -5978,7 +6036,7 @@ function renderEnemyChannelManageRows(filterText){
   const q = (filterText||'').toLowerCase().trim();
   const rows = document.getElementById('enemyChannelManageRows');
   const filtered = stats.filter(([ch])=> !q || ch.toLowerCase().includes(q));
-  if(!filtered.length){ rows.innerHTML = `<div class="empty-state" style="padding:20px 0;">Нічого не знайдено</div>`; return; }
+  if(!filtered.length){ rows.innerHTML = emptyStateHtml('Нічого не знайдено'); return; }
   rows.innerHTML = filtered.map(([ch,count])=>`
     <div class="field-row" style="grid-template-columns:1fr 1fr; align-items:center;">
       <div style="font-size:12px; color:var(--ink-faint); font-family:var(--font-mono);">${count} запис(ів)</div>
@@ -6433,7 +6491,7 @@ function renderSocialTable(){
   if(socialTableCollapsed) return;
   const net = selectedSocialNetwork;
   const rows = DB.socialStats.filter(s=>!net || s.network===net);
-  if(!rows.length){ wrap.innerHTML = `<div class="empty-state" style="padding:20px 0;">Записів ще немає</div>`; return; }
+  if(!rows.length){ wrap.innerHTML = emptyStateHtml('Записів ще немає'); return; }
   const growthRows = net ? socialGrowthSteps(net) : [];
   const rowsSorted = rows.slice().sort((a,b)=> b.month.localeCompare(a.month));
   const extraCols = net ? socialMetricsFor(net) : [];
@@ -7613,7 +7671,31 @@ async function confirmLinkSelectedToEvent(){
 /* ==================================================================
    EVENTS / INIT
    ================================================================== */
+/* Підписка на події, розбита за вкладками/вікнами. wireEvents() лише викликає їх по черзі —
+   порядок підписок лишається тим самим, що був в одній довгій функції. */
 function wireEvents(){
+  wireSearchClearButtons();
+  wireBroadcastsToolbarEvents();
+  wireEnemyEvents();
+  wireSocialModalEvents();
+  wireShootModalEvents();
+  wireFormFieldHelpers();
+  wireShootsBoardEvents();
+  wireSocialManageEvents();
+  wireEnemyChannelManageEvents();
+  wireBroadcastSelectionEvents();
+  wireBroadcastModalsEvents();
+  wireCrosstabEvents();
+  wireContactsEvents();
+  wireMilitaryEvents();
+  wireGuestInfoEvents();
+  wireMediaAndContactModalEvents();
+  wireSettingsEvents();
+  wireExcelImportEvents();
+  wireReportEvents();
+  wireGlobalEvents();
+}
+function wireSearchClearButtons(){
   document.querySelectorAll('.search-clear').forEach(btn=>{
     const input = document.getElementById(btn.dataset.clearFor);
     if(!input) return;
@@ -7626,6 +7708,8 @@ function wireEvents(){
     });
     toggle();
   });
+}
+function wireBroadcastsToolbarEvents(){
   document.getElementById('broadcastSearch').addEventListener('input', debounce(renderBroadcasts, 120));
   document.getElementById('overviewYearSelect').addEventListener('change', (e)=>{ overviewYear = e.target.value; renderOverview(); });
   wireDateField('f_date', 'f_date_native');
@@ -7662,7 +7746,8 @@ function wireEvents(){
     closeChannelRenameModal();
   });
   wireBackdropClose('channelRenameModal', closeChannelRenameModal);
-
+}
+function wireEnemyEvents(){
   document.getElementById('enemySearch').addEventListener('input', debounce(renderEnemyMentions, 120));
   document.getElementById('enemySortOrder').addEventListener('change', renderEnemyMentions);
   document.getElementById('enemyYearSelect').addEventListener('change', (e)=>{ enemyYear = e.target.value; renderEnemyMentions(); });
@@ -7692,7 +7777,8 @@ function wireEvents(){
     renderEnemyMentions();
   });
   document.getElementById('manageEnemyChannelsBtn').addEventListener('click', openEnemyChannelManageModal);
-
+}
+function wireSocialModalEvents(){
   document.getElementById('addSocialBtn').addEventListener('click', ()=>openSocialModal(null));
   document.getElementById('socialModalClose').addEventListener('click', closeSocialModal);
   document.getElementById('socialCancelBtn').addEventListener('click', closeSocialModal);
@@ -7701,6 +7787,8 @@ function wireEvents(){
   wireBackdropClose('socialModal', closeSocialModal);
   document.getElementById('manageNetworksBtn').addEventListener('click', openNetworkManageModal);
   document.getElementById('manageMetricsBtn').addEventListener('click', openMetricManageModal);
+}
+function wireShootModalEvents(){
   document.getElementById('addShootBtn').addEventListener('click', ()=>openShootModal(null));
   document.getElementById('shootsStatsYearSelect').addEventListener('change', (e)=>{ shootsStatsYear = e.target.value; renderShootsStats(); });
   document.getElementById('shootModalClose').addEventListener('click', closeShootModal);
@@ -7739,6 +7827,8 @@ function wireEvents(){
     row.querySelector('.sh-link-label').focus();
   });
   document.getElementById('manageStagesBtn').addEventListener('click', openStageManageModal);
+}
+function wireFormFieldHelpers(){
   wireMultiNameAutocomplete('f_guest', 'f_guestAutocomplete', ()=>{
     const contactNamesSet = new Set(DB.militaryContacts.map(c=>c.name).filter(Boolean));
     const extraGuestNames = Array.from(new Set(
@@ -7789,6 +7879,8 @@ function wireEvents(){
   wireDelegatedAutocomplete('channelGroupsRows', '.group-input', ()=>
     Array.from(new Set(Object.values(DB.channelGroups||{}))).map(s=>({value:s, label:s}))
   ); // single value
+}
+function wireShootsBoardEvents(){
   document.getElementById('printKanbanBtn').addEventListener('click', printKanbanBoard);
   const SHOOTS_COLLAPSE_IDS = ['kanbanBoardBody','shootsStatsBody'];
   document.getElementById('expandAllShootsBtn').addEventListener('click', ()=>{
@@ -7815,6 +7907,8 @@ function wireEvents(){
     closeStageManageModal();
   });
   wireBackdropClose('stageManageModal', closeStageManageModal);
+}
+function wireSocialManageEvents(){
   const SOCIAL_COLLAPSE_IDS = ['socialViewsBody','socialSubsBody','socialPostsBody','socialGrowthBody','socialCompareBody'];
   document.getElementById('expandAllSocialBtn').addEventListener('click', ()=>{
     SOCIAL_COLLAPSE_IDS.forEach(id=>collapsedPanels.delete(id));
@@ -7862,6 +7956,8 @@ function wireEvents(){
     closeNetworkManageModal();
   });
   wireBackdropClose('networkManageModal', closeNetworkManageModal);
+}
+function wireEnemyChannelManageEvents(){
   document.getElementById('enemyChannelManageClose').addEventListener('click', closeEnemyChannelManageModal);
   document.getElementById('enemyChannelManageCancelBtn').addEventListener('click', closeEnemyChannelManageModal);
   document.getElementById('enemyChannelManageSearch').addEventListener('input', debounce((e)=>renderEnemyChannelManageRows(e.target.value), 100));
@@ -7871,7 +7967,8 @@ function wireEvents(){
     closeEnemyChannelManageModal();
   });
   wireBackdropClose('enemyChannelManageModal', closeEnemyChannelManageModal);
-
+}
+function wireBroadcastSelectionEvents(){
   document.getElementById('exportSelectedBroadcastsBtn').addEventListener('click', ()=>{
     exportBroadcastsExcel(selectedBroadcastIds, 'tematychnyy-spysok');
   });
@@ -7926,6 +8023,8 @@ function wireEvents(){
     selectedBroadcastIds.clear();
     renderBroadcasts();
   });
+}
+function wireBroadcastModalsEvents(){
   document.getElementById('mediaInfoClose').addEventListener('click', closeMediaInfoModal);
   wireBackdropClose('mediaInfoModal', closeMediaInfoModal);
   document.getElementById('mediaInfoAddContactBtn').addEventListener('click', ()=>{
@@ -7960,7 +8059,8 @@ function wireEvents(){
   document.getElementById('broadcastSaveBtn').addEventListener('click', saveBroadcast);
   document.getElementById('deleteBroadcastBtn').addEventListener('click', deleteBroadcast);
   wireBackdropClose('broadcastModal', closeBroadcastModal);
-
+}
+function wireCrosstabEvents(){
   document.querySelectorAll('#crosstabMode .pill').forEach(p=>{
     p.addEventListener('click', ()=>{
       document.querySelectorAll('#crosstabMode .pill').forEach(x=>x.classList.remove('active'));
@@ -7989,7 +8089,8 @@ function wireEvents(){
     renderOverview(); renderCrosstab();
   });
   wireBackdropClose('channelGroupsModal', closeChannelGroupsModal);
-
+}
+function wireContactsEvents(){
   document.getElementById('contactSearch').addEventListener('input', debounce(renderContacts, 120));
   document.getElementById('filterRegion').addEventListener('click', (e)=>{
     const pill = e.target.closest('.pill');
@@ -8010,7 +8111,8 @@ function wireEvents(){
     selectedContactIds.clear();
     renderContacts();
   });
-
+}
+function wireMilitaryEvents(){
   document.getElementById('militarySearch').addEventListener('input', debounce(renderMilitaryContacts, 120));
   document.getElementById('addMilitaryBtn').addEventListener('click', ()=>openMilitaryModal(null));
   document.getElementById('militaryModalClose').addEventListener('click', closeMilitaryModal);
@@ -8041,7 +8143,8 @@ function wireEvents(){
     closeUnitManageModal();
   });
   wireBackdropClose('unitManageModal', closeUnitManageModal);
-
+}
+function wireGuestInfoEvents(){
   document.getElementById('guestInfoClose').addEventListener('click', closeGuestInfoModal);
   wireBackdropClose('guestInfoModal', closeGuestInfoModal);
   document.getElementById('guestInfoAddBtn').addEventListener('click', ()=>{
@@ -8072,6 +8175,8 @@ function wireEvents(){
       navigator.clipboard?.writeText(copyBtn.dataset.copyText||'').then(()=>showToast('Контакт скопійовано'));
     }
   });
+}
+function wireMediaAndContactModalEvents(){
   document.getElementById('manageMediaBtn').addEventListener('click', openMediaManageModal);
   document.getElementById('mediaManageClose').addEventListener('click', closeMediaManageModal);
   document.getElementById('mediaManageCancelBtn').addEventListener('click', closeMediaManageModal);
@@ -8091,7 +8196,8 @@ function wireEvents(){
   document.getElementById('contactSaveBtn').addEventListener('click', saveContact);
   document.getElementById('deleteContactBtn').addEventListener('click', deleteContact);
   wireBackdropClose('contactModal', closeContactModal);
-
+}
+function wireSettingsEvents(){
   document.getElementById('settingsChangeLogoBtn').addEventListener('click', ()=>document.getElementById('settingsLogoFileInput').click());
   document.getElementById('settingsLogoFileInput').addEventListener('change', handleLogoFileChange);
   document.getElementById('settingsResetLogoBtn').addEventListener('click', resetLogo);
@@ -8106,9 +8212,14 @@ function wireEvents(){
     if(!file) return;
     try{
       if(storageStale){ showToast('Дані змінено в іншій вкладці — спершу оновіть сторінку.'); return; }
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      validateBackupShape(parsed);
+      let text;
+      try{ text = await file.text(); }
+      catch(_){ reportError('Не вдалося прочитати файл', _); return; }
+      let parsed;
+      try{ parsed = JSON.parse(text); }
+      catch(_){ reportError('Файл пошкоджений або це не резервна копія дашборду (не вдалося розібрати JSON)', _); return; }
+      try{ validateBackupShape(parsed); }
+      catch(_){ reportError('Файл не схожий на резервну копію цього дашборду — дані не змінено', _); return; }
       if(!confirm('Замінити поточні дані вмістом файлу резервної копії? Вигляд і налаштування дашборду не зміняться. ' +
                   (storageLocked ? 'Дані, які не вдалося прочитати, спершу завантажаться у файл.'
                                  : 'Копія поточних даних завантажиться автоматично, щоб заміну можна було скасувати.'))) return;
@@ -8135,7 +8246,8 @@ function wireEvents(){
       applyLogo();
       applySettings();
     }catch(err){
-      showToast('Не вдалося прочитати файл');
+      // файл уже розібрано й перевірено вище, тож збій тут — під час заміни/перемальовки
+      reportError('Дані із файлу завантажено, але оновити екран не вдалося — перезавантажте сторінку', err);
     }finally{
       // also on cancel — otherwise choosing the same file again fires no "change" event
       e.target.value = '';
@@ -8197,7 +8309,8 @@ function wireEvents(){
     await saveDB(true);
     showToast('Вигляд скинуто до стандартного');
   });
-
+}
+function wireExcelImportEvents(){
   document.getElementById('importContactsExcelBtn').addEventListener('click', ()=>document.getElementById('importContactsExcelFile').click());
   document.getElementById('importContactsExcelFile').addEventListener('change', (e)=>{
     handleImportFile('contacts', e.target.files[0]);
@@ -8220,9 +8333,10 @@ function wireEvents(){
   });
   document.getElementById('importMapClose').addEventListener('click', closeImportMapModal);
   document.getElementById('importMapCancelBtn').addEventListener('click', closeImportMapModal);
-  document.getElementById('importMapConfirmBtn').addEventListener('click', confirmImport);
+  document.getElementById('importMapConfirmBtn').addEventListener('click', ()=>guarded('Не вдалося завершити імпорт. Перевірте файл і зіставлення колонок', confirmImport));
   wireBackdropClose('importMapModal', closeImportMapModal);
-
+}
+function wireReportEvents(){
   document.getElementById('generateReportBtn').addEventListener('click', openReportPeriodModal);
   document.getElementById('reportPeriodClose').addEventListener('click', closeReportPeriodModal);
   document.getElementById('reportPeriodCancelBtn').addEventListener('click', closeReportPeriodModal);
@@ -8232,9 +8346,10 @@ function wireEvents(){
     const key = document.getElementById('reportPeriodKey').value;
     if(!key){ showToast('Оберіть період'); return; }
     closeReportPeriodModal();
-    generateReport(type, key);
+    guarded('Не вдалося сформувати звіт. Спробуйте інший період; якщо повторюється — перезавантажте сторінку', ()=>generateReport(type, key));
   });
-
+}
+function wireGlobalEvents(){
   // keyboard: focus contact search with "/"
   document.addEventListener('click', (e)=>{
     if(!e.target.closest('.kanban-color-btn') && !e.target.closest('.kanban-color-popup')){
