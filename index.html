@@ -1851,15 +1851,10 @@ const MONTHS_UA_SHORT = ['Січ','Лют','Бер','Кві','Трав','Чер�
 const MONTHS_UA_FULL = ['Січень','Лютий','Березень','Квітень','Травень','Червень','Липень','Серпень','Вересень','Жовтень','Листопад','Грудень'];
 const MONTHS_UA_GENITIVE = ['січня','лютого','березня','квітня','травня','червня','липня','серпня','вересня','жовтня','листопада','грудня'];
 
-// known name variants that refer to the same person -> canonical spelling
-const GUEST_ALIASES = {
-  'евгеній равський': 'Євген Равський',
-  'евген равський': 'Євген Равський',
-};
+// a comma-separated list of people: trims spaces and drops empty items (no names live in the code)
 function normalizeGuestField(s){
   if(!s) return s;
-  return s.split(',').map(p=>p.trim()).filter(Boolean)
-    .map(p=>GUEST_ALIASES[p.toLowerCase()] || p).join(', ');
+  return s.split(',').map(p=>p.trim()).filter(Boolean).join(', ');
 }
 // channels/venues that are physical events or institutional visits rather than media appearances
 const EVENT_CHANNELS = new Set([
