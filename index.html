@@ -1982,44 +1982,9 @@ function migrate(db){
   });
   if(!db.settings) db.settings = {};
   if(!('hiddenTabs' in db.settings)) db.settings.hiddenTabs = [];
-  const KNOWN_NAME_FIXES = {
-  };
-  db.militaryContacts.forEach(c=>{
-    const fix = KNOWN_NAME_FIXES[(c.name||'').trim().toLowerCase()];
-    if(fix){
-      c.name = fix.name;
-      if(fix.callsign && !c.callsign) c.callsign = fix.callsign;
-    }
-    // these two "unit" names turned out to be artifacts of the original import
-    // (a stray line with no other data became a group header) — cross-referencing
-    // members' own notes showed the real unit names
-  });
   db.contacts.forEach(c=>{ c.media = normalizeDivys(c.media); });
-  fixKnownContactIssues(db);
   return db;
 }
-// self-healing fix for a known source-data quirk: under "Фіксери" in the original sheet,
-// a fixer's name landed in the media column and their phone landed in the name column.
-// Runs on every load so it also repairs data already saved in someone's browser storage.
-const FIXER_NAME_FIXES = new Set([]);
-function fixKnownContactIssues(db){
-  db.contacts = db.contacts.filter(c => !(
-    c.media === 'Фіксери' && !c.name && !c.phone && !c.note && (!c.projects || !c.projects.length)
-  ));
-  db.contacts.forEach(c=>{
-    if(FIXER_NAME_FIXES.has((c.media||'').trim())){
-      const phone = c.name;
-      c.name = c.media.trim();
-      c.phone = c.phone ? (c.phone + ', ' + phone) : phone;
-      c.media = 'Фіксери';
-      if(c.email && !c.email.includes('@')){
-        c.note = c.note ? (c.note + '; ' + c.email) : c.email;
-        c.email = '';
-      }
-    }
-  });
-}
-
 let DB = null;
 let activeTab = 'overview';
 
