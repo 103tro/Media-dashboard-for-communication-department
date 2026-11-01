@@ -2034,6 +2034,12 @@ let storageMode = null; // 'artifact' | 'local' | 'none' — set on first load, 
 // person is shown how to get it out.
 let storageLocked = false;
 let lockedRaw = null;
+// The whole DB lives in ONE localStorage value, and every tab keeps its own in-memory copy. Two
+// open tabs therefore overwrote each other silently (whoever saved last won). lastSeenRaw is the
+// exact string this tab last read from / wrote to storage; if storage no longer holds it, another
+// tab wrote in between and this tab's copy is stale — it must not save over that work.
+let lastSeenRaw = null;
+let storageStale = false;
 function looksLikeDashboardData(x){
   try{ validateBackupShape(x); return true; }catch(e){ return false; }
 }
@@ -2049,6 +2055,7 @@ async function loadDB(){
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
       storageMode = 'local';
+      lastSeenRaw = raw;
       if(raw){
         try{ loaded = JSON.parse(raw); }catch(e){ loaded = null; }
         if(!looksLikeDashboardData(loaded)){ loaded = null; storageLocked = true; lockedRaw = raw; }
@@ -3658,6 +3665,24 @@ function showLockedDataBanner(){
        onClick:()=>downloadTextFile(lockedRaw || '', `unreadable-data-${todayISO()}.json`) }]
   );
 }
+function markStorageStale(){
+  if(storageStale) return;
+  storageStale = true;
+  showDataBanner(
+    'Дані змінено в іншій вкладці дашборду. Щоб не затерти ту роботу, збереження в цій вкладці вимкнено. ' +
+    'Оновіть сторінку, щоб побачити актуальні дані. Якщо ви встигли внести зміни тут — спершу завантажте ' +
+    'копію цієї вкладки, щоб перенести їх вручну.',
+    [{ label:'Оновити сторінку', primary:true, onClick:()=>location.reload() },
+     { label:'Завантажити копію цієї вкладки', onClick:()=>downloadBackup(false, 'tab-copy') }]
+  );
+}
+// fires in the OTHER tabs when one tab writes localStorage (never in the tab that wrote)
+window.addEventListener('storage', (e)=>{
+  if(storageMode !== 'local' || storageLocked) return;
+  if(e.storageArea !== localStorage) return;
+  if(e.key !== null && e.key !== STORAGE_KEY) return;
+  if(e.newValue !== lastSeenRaw) markStorageStale();
+});
 async function saveDB(toast){
   if(storageLocked){
     showToast('Збереження вимкнено: у браузері лежать дані, які не вдалося прочитати. Дивіться повідомлення вгорі.');
@@ -3665,7 +3690,14 @@ async function saveDB(toast){
   }
   try{
     if(storageMode==='local'){
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
+      if(localStorage.getItem(STORAGE_KEY) !== lastSeenRaw){
+        markStorageStale();
+        showToast('Дані змінено в іншій вкладці — зміни тут не збережено. Дивіться повідомлення вгорі.');
+        return false;
+      }
+      const serialized = JSON.stringify(DB);
+      localStorage.setItem(STORAGE_KEY, serialized);
+      lastSeenRaw = serialized;
     } else if(hasArtifactStorage()){
       await window.storage.set(STORAGE_KEY, JSON.stringify(DB), false);
       storageMode = 'artifact';
@@ -8067,6 +8099,7 @@ function wireEvents(){
     const file = e.target.files[0];
     if(!file) return;
     try{
+      if(storageStale){ showToast('Дані змінено в іншій вкладці — спершу оновіть сторінку.'); return; }
       const text = await file.text();
       const parsed = JSON.parse(text);
       validateBackupShape(parsed);
@@ -8104,6 +8137,7 @@ function wireEvents(){
   });
   document.getElementById('settingsClearAllDataBtn').addEventListener('click', async ()=>{
     if(storageLocked){ showToast('Спершу завантажте збережені дані (повідомлення вгорі) або відновіть їх з копії.'); return; }
+    if(storageStale){ showToast('Дані змінено в іншій вкладці — спершу оновіть сторінку.'); return; }
     const ok = confirm(
       `Це видалить УСІ ${DB.broadcasts.length} ефірів, ${DB.contacts.length} контактів журналістів, ${DB.militaryContacts.length} контактів військових, ${DB.enemyMentions.length} ворожих згадок, всі дані соціальних мереж і ${DB.shoots.length} карток зйомок назавжди. `+
       'Перед видаленням автоматично завантажиться резервна копія на випадок помилки. Продовжити?'
