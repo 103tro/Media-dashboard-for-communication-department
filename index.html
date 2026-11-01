@@ -2340,7 +2340,12 @@ function readExcelFile(file){
     reader.onload = (e)=>{
       try{
         const data = new Uint8Array(e.target.result);
-        const wb = XLSX.read(data, {type:'array', cellDates:true});
+        // cellDates is deliberately OFF: with it on, SheetJS builds a JS Date at (roughly) local
+        // midnight, and in a timezone east of UTC (Ukraine) toISOString() then lands on the
+        // PREVIOUS day — a date typed as 05.03.2025 silently imported as 04.03.2025. cellNF keeps
+        // each cell's number format, so date cells are recognised below and turned into
+        // YYYY-MM-DD straight from the Excel serial number, with no timezone involved at all.
+        const wb = XLSX.read(data, {type:'array', cellDates:false, cellNF:true});
         const sheet = wb.Sheets[wb.SheetNames[0]];
         if(!sheet['!ref']){ resolve([]); return; }
         // Build rows straight from raw cells (not sheet_to_json) so each row's
@@ -2363,7 +2368,12 @@ function readExcelFile(file){
             const header = headers[c];
             if(!header) continue;
             const cell = sheet[XLSX.utils.encode_cell({r, c})];
-            const value = (cell && cell.v != null) ? cell.v : '';
+            let value = (cell && cell.v != null) ? cell.v : '';
+            if(cell && cell.t === 'n' && typeof value === 'number' && cell.z
+               && XLSX.SSF && XLSX.SSF.is_date && XLSX.SSF.is_date(cell.z)){
+              const dc = XLSX.SSF.parse_date_code(value);
+              if(dc) value = `${dc.y}-${String(dc.m).padStart(2,'0')}-${String(dc.d).padStart(2,'0')}`;
+            }
             if(value !== '') hasContent = true;
             row[header] = value;
             if(cell && cell.l && cell.l.Target){
@@ -2381,7 +2391,7 @@ function readExcelFile(file){
 }
 function parseImportedDate(raw){
   if(!raw) return null;
-  if(raw instanceof Date && !isNaN(raw)) return raw.toISOString().slice(0,10);
+  if(raw instanceof Date && !isNaN(raw)) return localISO(raw);
   const s = String(raw).trim();
   let m = s.match(/^(\d{1,2})[.\-\/](\d{1,2})[.\-\/](\d{4})$/);
   if(m) return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
@@ -3672,7 +3682,12 @@ function fmtMonthShort(ym){
   return `${MONTHS_UA_SHORT[+m-1]} ${y}`;
 }
 function monthKey(iso){ return iso ? iso.slice(0,7) : null; }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+// LOCAL calendar date. toISOString() is UTC, so for Ukraine (UTC+2/+3) it returns yesterday
+// between 00:00 and 02:00/03:00 — new entries and "today" filters were a day behind at night.
+function localISO(d){
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function todayISO(){ return localISO(new Date()); }
 
 /* ---------------- NAV ---------------- */
 function renderNav(){
