@@ -1983,8 +1983,29 @@ function migrate(db){
   if(!db.settings) db.settings = {};
   if(!('hiddenTabs' in db.settings)) db.settings.hiddenTabs = [];
   db.contacts.forEach(c=>{ c.media = normalizeDivys(c.media); });
+  sanitizeDB(db);
   return db;
 }
+// Defence in depth for data that did not come from this page's own forms (a backup someone sent,
+// storage written by an older version). Rendering escapes everything too; this keeps the stored
+// data itself clean so a bad value cannot sit in storage waiting for a render path that forgot.
+const LINK_KEY_RE = /(^|[a-z])(link|url)$/i;
+const DATE_KEY_RE = /^(date|month|createdAt|updatedAt|dueDate|deadline|lastBackupAt)$/;
+function sanitizeDB(root){
+  (function walk(o, depth){
+    if(!o || typeof o !== 'object' || depth > 8) return;
+    if(Array.isArray(o)){ o.forEach(v=>walk(v, depth+1)); return; }
+    Object.keys(o).forEach(k=>{
+      const v = o[k];
+      if(typeof v === 'string'){
+        if(LINK_KEY_RE.test(k)) o[k] = scrubLinkValue(v);
+        else if(DATE_KEY_RE.test(k)) o[k] = v.replace(/[<>&"'`]/g,'');
+      } else walk(v, depth+1);
+    });
+  })(root, 0);
+  (root.shoots||[]).forEach(sh=>{ if(sh && sh.color && !safeColor(sh.color)) sh.color = null; });
+}
+
 let DB = null;
 let activeTab = 'overview';
 
@@ -2407,7 +2428,7 @@ async function confirmImport(){
   selects.forEach(s=>{ mapping[s.dataset.field] = s.value; });
   const {kind, rows} = importContext;
   const val = (r,key) => mapping[key] ? String(r[mapping[key]]==null?'':r[mapping[key]]).trim() : '';
-  const linkVal = (r,key) => mapping[key] ? (r['__link__' + mapping[key]] || null) : null;
+  const linkVal = (r,key) => mapping[key] ? (scrubLinkValue(r['__link__' + mapping[key]]) || null) : null;
   let count = 0;
   if(kind==='contacts'){
     rows.forEach(r=>{
@@ -3505,6 +3526,18 @@ function updateBackupStatusUI(){
     ? `Остання резервна копія: ${fmtDateTime(DB.lastBackupAt)}`
     : 'Резервної копії ще не було';
 }
+// A backup is imported straight into the live data, so its shape is checked first: wrong types
+// would otherwise crash migrate()/render halfway through, after the old data was already replaced.
+function validateBackupShape(p){
+  const bad = () => { throw new Error('bad shape'); };
+  if(!p || typeof p !== 'object' || Array.isArray(p)) bad();
+  if(!Array.isArray(p.broadcasts) || !Array.isArray(p.contacts)) bad();
+  ['militaryContacts','enemyMentions','socialStats','shoots','extraUnits','adMediums','socialNetworks','shootStages']
+    .forEach(k=>{ if(k in p && !Array.isArray(p[k])) bad(); });
+  ['broadcasts','contacts','militaryContacts','enemyMentions','socialStats','shoots']
+    .forEach(k=>{ if(k in p && !p[k].every(r=>r && typeof r==='object' && !Array.isArray(r))) bad(); });
+  ['channelGroups','socialMetrics'].forEach(k=>{ if(k in p && (p[k]===null || typeof p[k]!=='object')) bad(); });
+}
 // "Форма" (вигляд — кольори, шрифт, лого, назва, приховані розділи) навмисно не входить у
 // резервну копію і ніколи не змінюється при відновленні: копія — це знімок ЗМІСТУ (даних),
 // а не вигляду дашборду. Так відновлення старого бекапу ніколи не поверне старі кольори чи лого.
@@ -3585,10 +3618,13 @@ async function saveDB(toast){
 }
 
 /* ---------------- date helpers ---------------- */
+// the result is dropped straight into innerHTML in ~20 places, so it must never carry markup:
+// a valid date is rebuilt from digits only, anything else has HTML-significant characters removed
 function fmtDate(iso){
   if(!iso) return '—';
-  const [y,m,d] = iso.split('-');
-  return `${d}.${m}.${y}`;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if(m) return `${m[3]}.${m[2]}.${m[1]}`;
+  return String(iso).replace(/[<>&"'`]/g,'') || '—';
 }
 // native <input type="date"> renders its text in whatever order the BROWSER's own UI
 // language dictates (commonly month-first for an English-language browser) — that's a
@@ -4180,7 +4216,7 @@ function adCampaignRowHtml(x){
       ${x.medium&&x.medium.length ? `<span>Носій: ${esc(x.medium.join(', '))}</span>` : ''}
       ${participants ? `<span>Учасники: ${esc(participants)}</span>` : ''}
       ${x.journalist ? `<span>Контактна особа: ${esc(x.journalist)}</span>` : ''}
-      ${x.fileLink ? `<a href="${attr(x.fileLink)}" target="_blank" rel="noopener">Матеріали</a>` : ''}
+      ${safeUrl(x.fileLink) ? `<a href="${safeHref(x.fileLink)}" target="_blank" rel="noopener">Матеріали</a>` : ''}
     </div>
     ${x.note ? `<div style="margin:4px 0 0 26px; font-size:12.5px; color:var(--ink-faint);">${esc(x.note)}</div>` : ''}
   </div>`;
@@ -4425,19 +4461,19 @@ function broadcastRowHtml(x){
   const isAd = x.type==='реклама';
   const dateCell = x.status==='plan' ? '—' : (isAd && x.dateEnd ? `${fmtDate(x.date)}–${fmtDate(x.dateEnd)}` : fmtDate(x.date));
   const typeNote = x.type==='подія' ? 'подія' : (isAd ? `реклама${x.medium&&x.medium.length?' · '+x.medium.join(', '):''}` : '');
-  return `<tr data-id="${x.id}" class="row-openable">
-      <td><input type="checkbox" class="row-select" data-select-id="${x.id}" ${selectedBroadcastIds.has(x.id)?'checked':''}></td>
+  return `<tr data-id="${attr(x.id)}" class="row-openable">
+      <td><input type="checkbox" class="row-select" data-select-id="${attr(x.id)}" ${selectedBroadcastIds.has(x.id)?'checked':''}></td>
       <td class="cell-date">${dateCell}</td>
       <td>${x.channel?`<span class="channel-link" data-channel="${attr(x.channel)}">${esc(x.channel)}</span>`:'—'}${typeNote?`<div class="cell-note">${esc(typeNote)}</div>`:''}</td>
       <td class="cell-topic">
-        ${x.topicLink ? `<a href="${attr(x.topicLink)}" target="_blank" rel="noopener">${esc(x.topic)||'(без назви)'}</a>` : `${esc(x.topic)||'—'}`}
+        ${safeUrl(x.topicLink) ? `<a href="${safeHref(x.topicLink)}" target="_blank" rel="noopener">${esc(x.topic)||'(без назви)'}</a>` : `${esc(x.topic)||'—'}`}
         ${x.note ? `<div class="cell-note">${esc(x.note)}</div>` : ''}
       </td>
       <td>${x.guest ? x.guest.split(',').map(g=>g.trim()).filter(Boolean).map(g=>`<span class="guest-link" data-guest="${attr(g)}">${esc(g)}</span>`).join(', ') : '—'}${x.journalist ? `<div class="cell-note">Журналіст: ${x.journalist.split(',').map(g=>g.trim()).filter(Boolean).map(g=>`<span class="guest-link" data-guest="${attr(g)}">${esc(g)}</span>`).join(', ')}</div>` : ''}</td>
       <td>${x.status==='done' ? '<span class="tag tag-done">Вийшло</span>' : '<span class="tag tag-plan">Заплановано</span>'}</td>
       <td><div style="display:flex; gap:4px;">${materials.join('')||'<span style="color:var(--ink-faint);">—</span>'}</div></td>
       <td><div class="row-actions">
-        <button class="icon-btn" data-edit="${x.id}" title="Редагувати">${iconEdit}</button>
+        <button class="icon-btn" data-edit="${attr(x.id)}" title="Редагувати">${iconEdit}</button>
       </div></td>
     </tr>`;
 }
@@ -4550,8 +4586,28 @@ function renderBroadcasts(){
   updateBroadcastSelectionBar();
 }
 function attr(s){ return esc(s).replace(/"/g,'&quot;'); }
+// Links reach href from typed fields, Excel hyperlinks and imported backups — all of which can be
+// crafted. Only these schemes may be followed; anything else ("javascript:", "data:", ...) is
+// dropped. Browsers ignore tabs/newlines/spaces/zero-width chars inside a scheme ("java\tscript:"),
+// so those are stripped before the check.
+const URL_STRIP_RE = /[\u0000-\u0020\u007f-\u009f\u200b-\u200f\u2028\u2029\ufeff]/g;
+function safeUrl(u){
+  if(u==null) return '';
+  const s = String(u).trim();
+  return /^(https?:|mailto:|tel:)/i.test(s.replace(URL_STRIP_RE,'')) ? s : '';
+}
+function safeHref(u){ return attr(safeUrl(u) || 'about:blank'); }
+// a scheme-less value (e.g. "www.site.com") is harmless text and is kept; only a value that DOES
+// carry a scheme outside the allowlist is dangerous
+function scrubLinkValue(v){
+  if(typeof v !== 'string') return v;
+  const probe = v.replace(URL_STRIP_RE,'');
+  return (/^[a-z][a-z0-9+.\-]*:/i.test(probe) && !safeUrl(v)) ? null : v;
+}
+function safeColor(c){ return (typeof c==='string' && /^#[0-9a-fA-F]{3,8}$/.test(c)) ? c : ''; }
 function linkIcon(href,title,icon){
-  return `<a class="linkicon" href="${attr(href)}" target="_blank" rel="noopener" title="${attr(title)}">${icon}</a>`;
+  if(!safeUrl(href)) return '';
+  return `<a class="linkicon" href="${safeHref(href)}" target="_blank" rel="noopener" title="${attr(title)}">${icon}</a>`;
 }
 const iconFile = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>';
 const iconPhoto = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10.5" r="1.5"/><path d="M21 15l-5-5L5 19"/></svg>';
@@ -4786,10 +4842,10 @@ function renderCrosstabResults(idx){
       const sub = crosstabMode==='channelGroup' && x.channel && x.channel.trim()!==key ? `<span style="color:var(--ink-faint); font-weight:400;">· ${esc(x.channel)} </span>` : '';
       return `
     <div class="appearance-item">
-      <input type="checkbox" class="item-select" data-select-id="${x.id}" style="margin-right:2px;">
+      <input type="checkbox" class="item-select" data-select-id="${attr(x.id)}" style="margin-right:2px;">
       <div class="appearance-date">${fmtDate(x.date)}</div>
       <div class="appearance-channel">${esc(crosstabMode==='guest' ? x.channel : (x.guest||'—'))}${crosstabMode==='guest'?'':''}</div>
-      <div class="appearance-topic">${sub}${x.topicLink?`<a href="${attr(x.topicLink)}" target="_blank" rel="noopener">${esc(x.topic)||'матеріал'}</a>`:esc(x.topic||x.note||'')}</div>
+      <div class="appearance-topic">${sub}${safeUrl(x.topicLink)?`<a href="${safeHref(x.topicLink)}" target="_blank" rel="noopener">${esc(x.topic)||'матеріал'}</a>`:esc(x.topic||x.note||'')}</div>
     </div>`;
     }).join('');
   wrap.querySelectorAll('.item-select').forEach(el=>{
@@ -5121,7 +5177,7 @@ function renderContacts(){
       <div class="media-head ${collapsed?'collapsed':''}" data-media="${attr(g.media)}">
         <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M6 9l6 6 6-6"/></svg>
         <input type="checkbox" class="group-select-checkbox" data-group-key="${attr(g.media)}" title="Вибрати все медіа" style="margin:0 2px;">
-        <div class="media-name">${g.mediaLink?`<a href="${attr(g.mediaLink)}" target="_blank" rel="noopener">${esc(g.media)}</a>`:esc(g.media)}</div>
+        <div class="media-name">${safeUrl(g.mediaLink)?`<a href="${safeHref(g.mediaLink)}" target="_blank" rel="noopener">${esc(g.media)}</a>`:esc(g.media)}</div>
         <span class="region-badge" style="background:${rc.bg}; color:${rc.fg};">${esc(g.region)}</span>
         <span class="media-badge">${g.items.length}</span>
       </div>
@@ -5165,12 +5221,12 @@ function contactRowHtml(c, opts){
   if(c.phone) meta.push(`<span class="copy-phone" data-phone="${attr(c.phone)}" title="Копіювати">☎ ${esc(c.phone)}</span>`);
   if(c.email) meta.push(`<a href="mailto:${attr(c.email)}">✉ ${esc(c.email)}</a>`);
   const projects = c.projects || [];
-  const projectLines = projects.map(p=>`<div class="contact-project-line">${p.link?`<a href="${attr(p.link)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name)}</div>`).join('');
-  const checkbox = opts.selectable===false ? '' : `<input type="checkbox" class="contact-select" data-select-id="${c.id}" ${selectedContactIds.has(c.id)?'checked':''} style="margin-top:2px;">`;
+  const projectLines = projects.map(p=>`<div class="contact-project-line">${safeUrl(p.link)?`<a href="${safeHref(p.link)}" target="_blank" rel="noopener">${esc(p.name)}</a>`:esc(p.name)}</div>`).join('');
+  const checkbox = opts.selectable===false ? '' : `<input type="checkbox" class="contact-select" data-select-id="${attr(c.id)}" ${selectedContactIds.has(c.id)?'checked':''} style="margin-top:2px;">`;
   return `<div class="contact-row">
     ${checkbox}
     <div class="contact-main">
-      ${c.name ? `<div class="contact-name">${c.nameLink?`<a href="${attr(c.nameLink)}" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">${esc(c.name)}</a>`:esc(c.name)}</div>`:''}
+      ${c.name ? `<div class="contact-name">${safeUrl(c.nameLink)?`<a href="${safeHref(c.nameLink)}" target="_blank" rel="noopener" style="color:inherit; text-decoration:none;">${esc(c.name)}</a>`:esc(c.name)}</div>`:''}
       ${c.position ? `<div class="contact-position">${esc(c.position)}</div>`:''}
       ${meta.length?`<div class="contact-meta">${meta.join('')}</div>`:''}
       ${projectLines ? `<div class="contact-project">${projectLines}</div>`:''}
@@ -5179,7 +5235,7 @@ function contactRowHtml(c, opts){
     </div>
     <div class="row-actions">
       <button class="icon-btn copy-contact-btn" data-copy-text="${attr(contactCopyText(c, 'journalist'))}" title="Скопіювати контакт">${iconCopy}</button>
-      <button class="icon-btn" data-edit-contact="${c.id}" title="Редагувати">${iconEdit}</button>
+      <button class="icon-btn" data-edit-contact="${attr(c.id)}" title="Редагувати">${iconEdit}</button>
     </div>
   </div>`;
 }
@@ -5283,7 +5339,7 @@ function militaryContactRowHtml(c, opts){
   else if(opts.verbose) meta.push(`☎ ${faint('телефон не вказано')}`);
   if(c.email) meta.push(`<a href="mailto:${attr(c.email)}">✉ ${esc(c.email)}</a>`);
   else if(opts.verbose) meta.push(`✉ ${faint('email не вказано')}`);
-  const checkbox = opts.selectable===false ? '' : `<input type="checkbox" class="military-select" data-select-id="${c.id}" ${selectedMilitaryIds.has(c.id)?'checked':''} style="margin-top:2px;">`;
+  const checkbox = opts.selectable===false ? '' : `<input type="checkbox" class="military-select" data-select-id="${attr(c.id)}" ${selectedMilitaryIds.has(c.id)?'checked':''} style="margin-top:2px;">`;
   const unitLine = opts.showUnit ? `<div class="contact-position">Підрозділ: ${c.unit ? esc(c.unit) : faint('не вказано')}${c.subunit ? ' · ' + esc(c.subunit) : ''}</div>` : (c.subunit ? `<div class="contact-position">${esc(c.subunit)}</div>` : '');
   const callsignInline = c.callsign
     ? ` <span class="callsign-badge">${esc(c.callsign)}</span>`
@@ -5298,11 +5354,11 @@ function militaryContactRowHtml(c, opts){
       ${unitLine}
       ${c.position ? `<div class="contact-position">${esc(c.position)}</div>`:(opts.verbose ? `<div class="contact-position">${faint('посада не вказана')}</div>`:'')}
       ${meta.length?`<div class="contact-meta">${meta.join('')}</div>`:''}
-      ${c.note ? `<div class="contact-note">${c.noteLink?`<a href="${attr(c.noteLink)}" target="_blank" rel="noopener">${esc(c.note)}</a>`:esc(c.note)}</div>`:(opts.verbose ? `<div class="contact-note">${faint('без примітки')}</div>`:'')}
+      ${c.note ? `<div class="contact-note">${safeUrl(c.noteLink)?`<a href="${safeHref(c.noteLink)}" target="_blank" rel="noopener">${esc(c.note)}</a>`:esc(c.note)}</div>`:(opts.verbose ? `<div class="contact-note">${faint('без примітки')}</div>`:'')}
     </div>
     <div class="row-actions">
       <button class="icon-btn copy-contact-btn" data-copy-text="${attr(contactCopyText(c, 'military'))}" title="Скопіювати контакт">${iconCopy}</button>
-      <button class="icon-btn" data-edit-military="${c.id}" title="Редагувати">${iconEdit}</button>
+      <button class="icon-btn" data-edit-military="${attr(c.id)}" title="Редагувати">${iconEdit}</button>
     </div>
   </div>`;
 }
@@ -5531,14 +5587,14 @@ function updateEnemySelectionBar(){
 }
 function enemyRowHtml(x){
   return `<div class="contact-row">
-    <input type="checkbox" class="enemy-select" data-select-id="${x.id}" ${selectedEnemyIds.has(x.id)?'checked':''} style="margin-top:2px;">
+    <input type="checkbox" class="enemy-select" data-select-id="${attr(x.id)}" ${selectedEnemyIds.has(x.id)?'checked':''} style="margin-top:2px;">
     <div class="contact-main">
       <div class="contact-name">${fmtDate(x.date)} · ${esc(x.channel)||'—'}</div>
-      ${x.message ? `<div class="contact-note" style="font-style:normal; color:var(--ink);">${x.messageLink?`<a href="${attr(x.messageLink)}" target="_blank" rel="noopener">${esc(x.message)}</a>`:esc(x.message)}</div>`:''}
-      ${x.original ? `<div class="contact-note">Оригінал: ${x.originalLink?`<a href="${attr(x.originalLink)}" target="_blank" rel="noopener">${esc(x.original)}</a>`:esc(x.original)}</div>`:''}
+      ${x.message ? `<div class="contact-note" style="font-style:normal; color:var(--ink);">${safeUrl(x.messageLink)?`<a href="${safeHref(x.messageLink)}" target="_blank" rel="noopener">${esc(x.message)}</a>`:esc(x.message)}</div>`:''}
+      ${x.original ? `<div class="contact-note">Оригінал: ${safeUrl(x.originalLink)?`<a href="${safeHref(x.originalLink)}" target="_blank" rel="noopener">${esc(x.original)}</a>`:esc(x.original)}</div>`:''}
     </div>
     <div class="row-actions">
-      <button class="icon-btn" data-edit-enemy="${x.id}" title="Редагувати">${iconEdit}</button>
+      <button class="icon-btn" data-edit-enemy="${attr(x.id)}" title="Редагувати">${iconEdit}</button>
     </div>
   </div>`;
 }
@@ -6278,12 +6334,12 @@ function renderSocialTable(){
   wrap.innerHTML = `<table class="data-table"><thead><tr><th>Місяць</th><th>Підписники</th><th>Крок росту</th>${extraCols.map(m=>`<th>${esc(m)}</th>`).join('')}<th></th></tr></thead><tbody>` +
     rowsSorted.map(r=>{
       const g = growthRows.find(x=>x.month===r.month);
-      return `<tr data-id="${r.id}">
+      return `<tr data-id="${attr(r.id)}">
         <td>${monthShortLabel(r.month)}</td>
         <td>${r.subscribers!=null ? r.subscribers.toLocaleString('uk-UA') : '—'}</td>
         <td>${g ? (g.growth>=0?'+':'')+g.growth.toLocaleString('uk-UA') : '—'}</td>
         ${extraCols.map(m=>{ const v = socialMetricValue(r,m); return `<td>${v!=null ? v.toLocaleString('uk-UA') : '—'}</td>`; }).join('')}
-        <td><button class="icon-btn" data-edit-social="${r.id}" title="Редагувати">${iconEdit}</button></td>
+        <td><button class="icon-btn" data-edit-social="${attr(r.id)}" title="Редагувати">${iconEdit}</button></td>
       </tr>`;
     }).join('') + `</tbody></table>`;
   wrap.querySelectorAll('[data-edit-social]').forEach(el=>{
@@ -6298,7 +6354,7 @@ function renderSocialExtraFields(network, existing){
     return;
   }
   extraRow.innerHTML = `<div class="field-row" style="flex-wrap:wrap;">` + metrics.map(m=>`
-    <div class="field" style="min-width:180px; flex:1;"><label>${esc(m)}</label><input type="number" class="s-extra-input" data-metric="${attr(m)}" min="0" placeholder="Необов'язково" value="${existing && existing.extra && existing.extra[m]!=null ? existing.extra[m] : ''}"></div>
+    <div class="field" style="min-width:180px; flex:1;"><label>${esc(m)}</label><input type="number" class="s-extra-input" data-metric="${attr(m)}" min="0" placeholder="Необов'язково" value="${existing && existing.extra && existing.extra[m]!=null ? attr(String(existing.extra[m])) : ''}"></div>
   `).join('') + `</div>`;
 }
 function openSocialModal(id){
@@ -6546,7 +6602,7 @@ function printKanbanBoard(){
         (cards.length ? cards.map(shoot=>{
           const tasksHtml = (shoot.tasks||[]).length
             ? `<div class="kp-card-tasks">${shoot.tasks.map(t=>`${t.done?'☑':'☐'} ${esc(t.text)}`).join('<br>')}</div>` : '';
-          return `<div class="kp-card" style="${shoot.color?`border-left:4px solid ${shoot.color};`:''}">
+          return `<div class="kp-card" style="${safeColor(shoot.color)?`border-left:4px solid ${safeColor(shoot.color)};`:''}">
             <div class="kp-card-title">${esc(shoot.title)||'Без назви'}</div>
             <div class="kp-card-meta">${esc(shoot.type)}${shoot.contactName?' · '+esc(shoot.contactName):''}</div>
             ${tasksHtml}
@@ -6622,16 +6678,16 @@ function shootCardHtml(shoot){
   const typeIcon = shoot.type==='фото'
     ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><rect x="3" y="6" width="18" height="14" rx="2"/><circle cx="12" cy="13" r="3.5"/><path d="M8 6l1.5-2h5L16 6"/></svg>'
     : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>';
-  const borderStyle = shoot.color ? `border:1px solid var(--border); border-left:4px solid ${shoot.color};` : 'border:1px solid var(--border);';
-  return `<div class="kanban-card" draggable="true" data-shoot-id="${shoot.id}" data-open-shoot="${shoot.id}" style="position:relative; background:var(--surface); ${borderStyle} border-radius:8px; padding:10px; cursor:pointer;">
+  const borderStyle = safeColor(shoot.color) ? `border:1px solid var(--border); border-left:4px solid ${safeColor(shoot.color)};` : 'border:1px solid var(--border);';
+  return `<div class="kanban-card" draggable="true" data-shoot-id="${attr(shoot.id)}" data-open-shoot="${attr(shoot.id)}" style="position:relative; background:var(--surface); ${borderStyle} border-radius:8px; padding:10px; cursor:pointer;">
     <div style="display:flex; align-items:center; gap:4px; margin-bottom:5px;">
       <div style="display:flex; align-items:center; gap:6px; color:var(--ink-faint); flex:1;">${typeIcon}<span style="font-size:10.5px; text-transform:uppercase; letter-spacing:.02em;">${esc(shoot.type)}</span></div>
-      <button type="button" class="icon-btn kanban-color-btn" data-shoot-id="${shoot.id}" title="Позначити кольором" style="width:20px; height:20px; padding:0; border-radius:50%; border:1px solid var(--border); background:${shoot.color||'transparent'};"></button>
-      <div class="kanban-color-popup hidden" data-shoot-id="${shoot.id}" style="position:absolute; top:30px; right:10px; z-index:20; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); flex-wrap:wrap; gap:6px; width:104px;">
-        ${KANBAN_COLORS.map(c=>`<button type="button" class="kanban-color-option" data-shoot-id="${shoot.id}" data-color="${c}" style="width:20px; height:20px; border-radius:50%; border:${shoot.color===c?'2px solid var(--ink)':'1px solid rgba(0,0,0,.1)'}; background:${c}; cursor:pointer;"></button>`).join('')}
-        <button type="button" class="kanban-color-option" data-shoot-id="${shoot.id}" data-color="" title="Без кольору" style="width:20px; height:20px; border-radius:50%; border:1px solid var(--border); background:var(--bg); cursor:pointer; font-size:11px; line-height:18px;">✕</button>
+      <button type="button" class="icon-btn kanban-color-btn" data-shoot-id="${attr(shoot.id)}" title="Позначити кольором" style="width:20px; height:20px; padding:0; border-radius:50%; border:1px solid var(--border); background:${safeColor(shoot.color)||'transparent'};"></button>
+      <div class="kanban-color-popup hidden" data-shoot-id="${attr(shoot.id)}" style="position:absolute; top:30px; right:10px; z-index:20; background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:8px; box-shadow:0 4px 14px rgba(0,0,0,.15); flex-wrap:wrap; gap:6px; width:104px;">
+        ${KANBAN_COLORS.map(c=>`<button type="button" class="kanban-color-option" data-shoot-id="${attr(shoot.id)}" data-color="${c}" style="width:20px; height:20px; border-radius:50%; border:${shoot.color===c?'2px solid var(--ink)':'1px solid rgba(0,0,0,.1)'}; background:${c}; cursor:pointer;"></button>`).join('')}
+        <button type="button" class="kanban-color-option" data-shoot-id="${attr(shoot.id)}" data-color="" title="Без кольору" style="width:20px; height:20px; border-radius:50%; border:1px solid var(--border); background:var(--bg); cursor:pointer; font-size:11px; line-height:18px;">✕</button>
       </div>
-      <select class="kanban-move-compact" data-shoot-id="${shoot.id}" title="Перемістити на інший етап" style="font-size:10.5px; padding:2px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg); max-width:34px; color:var(--ink-faint);">
+      <select class="kanban-move-compact" data-shoot-id="${attr(shoot.id)}" title="Перемістити на інший етап" style="font-size:10.5px; padding:2px 4px; border-radius:6px; border:1px solid var(--border); background:var(--bg); max-width:34px; color:var(--ink-faint);">
         <option value="" selected disabled>→</option>
         ${DB.shootStages.filter(st=>st!==shoot.stage).map(st=>`<option value="${attr(st)}">${esc(st)}</option>`).join('')}
       </select>
@@ -6760,12 +6816,12 @@ function renderShootsArchive(){
       </div>
       <div class="media-body ${collapsed?'hidden':''}">
         ${g.items.map(s=>{
-          return `<div class="contact-row" data-open-shoot="${s.id}" style="cursor:pointer;">
+          return `<div class="contact-row" data-open-shoot="${attr(s.id)}" style="cursor:pointer;">
             <div class="contact-main">
               <div class="contact-name" style="font-weight:400;">${esc(s.title)||'Без назви'} <span style="font-weight:400; color:var(--ink-faint); font-size:11.5px;">(${esc(s.type)})</span></div>
               ${s.contactName ? `<div class="contact-note">${contactNameLinksHtml(s.contactName)}</div>` : ''}
             </div>
-            <div class="row-actions"><button class="icon-btn" data-open-shoot="${s.id}" title="Редагувати">${iconEdit}</button></div>
+            <div class="row-actions"><button class="icon-btn" data-open-shoot="${attr(s.id)}" title="Редагувати">${iconEdit}</button></div>
           </div>`;
         }).join('')}
       </div>
@@ -7945,7 +8001,7 @@ function wireEvents(){
     try{
       const text = await file.text();
       const parsed = JSON.parse(text);
-      if(!parsed.broadcasts || !parsed.contacts) throw new Error('bad shape');
+      validateBackupShape(parsed);
       if(!confirm('Замінити поточні дані вмістом файлу резервної копії? Вигляд і налаштування дашборду не зміняться.')) return;
       // form (appearance/branding) stays exactly as currently configured, regardless of
       // what the backup file does or doesn't contain — a content restore should never
