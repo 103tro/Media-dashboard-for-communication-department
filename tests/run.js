@@ -410,6 +410,114 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       await p.close();
     });
     await ctx.close();
+
+    // =====================================================================
+    group('10. Помилки не мовчать: користувач бачить пояснення');
+    ctx = await newContext(browser);
+    const toastText = p => p.evaluate(() => document.getElementById('toast').textContent);
+    const toastShown = p => p.evaluate(() => document.getElementById('toast').classList.contains('show'));
+    // сторінка навмисно ламається, тож помилки в консолі тут очікувані — перевіряємо лише поведінку
+    await test('guarded(): збій дії → зрозумілий тост, виняток не летить далі', async () => {
+      const p = await openPage(ctx, url, null);
+      const r = await p.evaluate(async () => {
+        const v = await guarded('Не вийшло', async () => { throw new Error('boom'); });
+        return {v: v === undefined};
+      });
+      assert(r.v, 'guarded мав повернути undefined');
+      eq(await toastText(p), 'Не вийшло'); assert(await toastShown(p), 'тост не показано');
+      await p.close();
+    });
+    await test('необроблена помилка й відхилений проміс → тост, не частіше за раз на кілька секунд', async () => {
+      const p = await openPage(ctx, url, null);
+      await p.evaluate(() => { setTimeout(() => { throw new Error('uncaught-1'); }, 0); });
+      await p.waitForFunction(() => document.getElementById('toast').textContent.startsWith('Щось пішло не так'));
+      await p.evaluate(() => { document.getElementById('toast').textContent = 'порожньо'; Promise.reject(new Error('rejected-2')); });
+      await p.waitForTimeout(200);
+      eq(await toastText(p), 'порожньо', 'друга помилка одразу після першої не мала знову засипати екран');
+      await p.close();
+    });
+    await test('звіт: збій під час формування → повідомлення, а не вічне «Формую звіт…»', async () => {
+      const db = {lastBackupAt:new Date().toISOString(), contacts:[], broadcasts:[{id:'b1', date:'2026-03-05', status:'done', type:'ефір', channel:'К', topic:'Т'}]};
+      const p = await openPage(ctx, url, JSON.stringify(db));
+      await p.evaluate(() => { generateReport = async () => { showToast('Формую звіт…'); throw new Error('boom'); }; openReportPeriodModal(); });
+      await p.evaluate(() => document.getElementById('reportPeriodGenerateBtn').click());
+      await p.waitForFunction(() => document.getElementById('toast').textContent.startsWith('Не вдалося сформувати звіт'));
+      await p.close();
+    });
+    await test('звіт: справжній .pptx формується й завантажується', async () => {
+      const db = {lastBackupAt:new Date().toISOString(), contacts:[], broadcasts:[
+        {id:'b1', date:'2026-03-05', status:'done', type:'ефір', channel:'Канал А', topic:'Тема 1', guest:'Гість'},
+        {id:'b2', date:'2026-03-12', status:'done', type:'ефір', channel:'Канал Б', topic:'Тема 2'},
+      ]};
+      const p = await openPage(ctx, url, JSON.stringify(db));
+      await p.evaluate(() => openReportPeriodModal());
+      const [dl] = await Promise.all([
+        p.waitForEvent('download', {timeout: 60000}),
+        p.evaluate(() => document.getElementById('reportPeriodGenerateBtn').click()),
+      ]);
+      assert(/^zvit-.*\.pptx$/.test(dl.suggestedFilename()), 'ім\'я файлу: ' + dl.suggestedFilename());
+      await p.close();
+    });
+    await test('звіт: якщо виправлення пакета впало — файл усе одно завантажується', async () => {
+      const db = {lastBackupAt:new Date().toISOString(), contacts:[], broadcasts:[{id:'b1', date:'2026-03-05', status:'done', type:'ефір', channel:'К', topic:'Т'}]};
+      const p = await openPage(ctx, url, JSON.stringify(db));
+      await p.evaluate(() => { patchPptxPackage = async () => { throw new Error('zip broke'); }; openReportPeriodModal(); });
+      const [dl] = await Promise.all([
+        p.waitForEvent('download', {timeout: 60000}),
+        p.evaluate(() => document.getElementById('reportPeriodGenerateBtn').click()),
+      ]);
+      assert(/\.pptx$/.test(dl.suggestedFilename()), 'файл не завантажився');
+      await p.close();
+    });
+    await test('імпорт Excel: пошкоджений файл → зрозуміле повідомлення, нічого не змінюється', async () => {
+      const p = await openPage(ctx, url, null);
+      const before = await p.evaluate(() => JSON.stringify(DB.contacts));
+      await p.evaluate(async () => {
+        const broken = new File([new Uint8Array([0x50,0x4b,0x03,0x04,1,2,3,4,5,6,7,8])], 'x.xlsx');
+        await handleImportFile('contacts', broken);
+      });
+      assert(/^(Не вдалося прочитати файл|Файл захищений паролем або пошкоджений)/.test(await toastText(p)), 'повідомлення: ' + await toastText(p));
+      eq(await p.evaluate(() => JSON.stringify(DB.contacts)), before, 'дані змінились');
+      assert(!(await p.evaluate(() => document.getElementById('importMapModal').classList.contains('open'))), 'вікно зіставлення не мало відкритись');
+      await p.close();
+    });
+    await test('імпорт бекапу: не-JSON і чужа форма дають різні, чесні повідомлення; дані не змінюються', async () => {
+      const p = await openPage(ctx, url, JSON.stringify({contacts:[], broadcasts:[{id:'b1', date:'2026-03-05', status:'done', type:'ефір', channel:'К', topic:'Збережене'}]}));
+      const before = await lsGet(p);
+      const feed = async (content) => {
+        await p.setInputFiles('#importFile', {name:'b.json', mimeType:'application/json', buffer:Buffer.from(content)});
+        await p.waitForTimeout(250);
+      };
+      await feed('{ це не json');
+      assert((await toastText(p)).includes('пошкоджений'), 'для не-JSON: ' + await toastText(p));
+      await feed(JSON.stringify({hello:'world'}));
+      assert((await toastText(p)).includes('не схожий на резервну копію'), 'для чужої форми: ' + await toastText(p));
+      eq(await lsGet(p), before, 'сховище змінилось');
+      await p.close();
+    });
+    await test('extLink / emptyStateHtml: безпечні адреси — посилання, небезпечні — звичайний текст, усе екранується', async () => {
+      const p = await openPage(ctx, url, null);
+      const r = await p.evaluate(() => ({
+        ok: extLink('https://a.b/c', '<i>x</i>'),
+        js: extLink('javascript:alert(1)', '<i>x</i>'),
+        none: extLink('', 'просто'),
+        empty: emptyStateHtml('<b>Нічого</b>'),
+      }));
+      assert(r.ok.startsWith('<a href="https://a.b/c"') && r.ok.includes('rel="noopener"') && r.ok.includes('&lt;i&gt;x&lt;/i&gt;'), r.ok);
+      eq(r.js, '&lt;i&gt;x&lt;/i&gt;'); eq(r.none, 'просто');
+      assert(r.empty.includes('empty-state') && r.empty.includes('&lt;b&gt;') && !r.empty.includes('<b>'), r.empty);
+      await p.close();
+    });
+    await test('після розбиття wireEvents кнопки працюють: відкрити й закрити вікно запису', async () => {
+      const p = await openPage(ctx, url, null);
+      await p.evaluate(() => setTab('enemy'));
+      await p.click('#addEnemyBtn');
+      assert(await p.evaluate(() => document.getElementById('enemyModal').classList.contains('open')), 'вікно не відкрилось');
+      await p.click('#enemyModalClose');
+      assert(!(await p.evaluate(() => document.getElementById('enemyModal').classList.contains('open'))), 'вікно не закрилось');
+      await p.close();
+    });
+    await ctx.close();
   } finally {
     await browser.close();
     srv.close();
