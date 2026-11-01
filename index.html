@@ -2028,6 +2028,15 @@ function hasArtifactStorage(){
   return typeof window.storage === 'object' && window.storage && typeof window.storage.get === 'function';
 }
 let storageMode = null; // 'artifact' | 'local' | 'none' — set on first load, shown to the user
+// If something is stored but does not look like our data (corrupted JSON, an older/foreign
+// shape), the old code treated it as "nothing stored", swapped in the empty seed and SAVED it —
+// destroying whatever was there. Now such data is left untouched, saving is switched off, and the
+// person is shown how to get it out.
+let storageLocked = false;
+let lockedRaw = null;
+function looksLikeDashboardData(x){
+  try{ validateBackupShape(x); return true; }catch(e){ return false; }
+}
 async function loadDB(){
   let loaded = null;
   if(hasArtifactStorage()){
@@ -2039,16 +2048,20 @@ async function loadDB(){
   } else {
     try{
       const raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){ loaded = JSON.parse(raw); }
       storageMode = 'local';
+      if(raw){
+        try{ loaded = JSON.parse(raw); }catch(e){ loaded = null; }
+        if(!looksLikeDashboardData(loaded)){ loaded = null; storageLocked = true; lockedRaw = raw; }
+      }
     }catch(e){ storageMode = 'none'; }
   }
-  if(loaded && loaded.broadcasts && loaded.contacts){
+  if(loaded && looksLikeDashboardData(loaded)){
     DB = migrate(loaded);
   } else {
     DB = migrate(JSON.parse(JSON.stringify(SEED_DATA)));
-    await saveDB(false);
+    if(!storageLocked) await saveDB(false);
   }
+  if(storageLocked) showLockedDataBanner();
   updateStorageStatusUI();
   applyLogo();
   applySettings();
@@ -3542,14 +3555,14 @@ function validateBackupShape(p){
 // резервну копію і ніколи не змінюється при відновленні: копія — це знімок ЗМІСТУ (даних),
 // а не вигляду дашборду. Так відновлення старого бекапу ніколи не поверне старі кольори чи лого.
 const FORM_FIELDS = ['settings', 'customLogo'];
-function downloadBackup(auto){
+function downloadBackup(auto, filenamePrefix){
   try{
     const content = {...DB};
     FORM_FIELDS.forEach(f=>delete content[f]);
     const blob = new Blob([JSON.stringify(content,null,1)], {type:'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `media-dashboard-backup-${todayISO()}.json`;
+    a.href = url; a.download = `${filenamePrefix || 'media-dashboard-backup'}-${todayISO()}.json`;
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
     showToast(auto ? 'Автоматична резервна копія завантажена' : 'Резервну копію завантажено');
@@ -3600,7 +3613,56 @@ function scheduleDebouncedBackup(){
     }
   }, BACKUP_QUIET_PERIOD_MS);
 }
+// A persistent notice (unlike the 2-second toast) for states where the person must act so data
+// is not lost. Uses --surface / --ink-on-surface, which stay readable on any custom palette.
+function showDataBanner(message, buttons){
+  let el = document.getElementById('dataBanner');
+  if(!el){
+    el = document.createElement('div');
+    el.id = 'dataBanner';
+    el.setAttribute('role','alert');
+    el.style.cssText = 'position:fixed; left:50%; top:14px; transform:translateX(-50%); z-index:150; width:min(640px, calc(100vw - 24px)); box-sizing:border-box; background:var(--surface); color:var(--ink-on-surface); border:2px solid var(--brass); border-radius:10px; padding:14px 16px; box-shadow:0 8px 30px rgba(0,0,0,.28); font-size:13.5px; line-height:1.45;';
+    document.body.appendChild(el);
+  }
+  el.textContent = '';
+  const msg = document.createElement('div');
+  msg.textContent = message;
+  el.appendChild(msg);
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;';
+  buttons.forEach(b=>{
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-sm ' + (b.primary ? 'btn-primary' : 'btn-ghost');
+    btn.textContent = b.label;
+    btn.addEventListener('click', b.onClick);
+    row.appendChild(btn);
+  });
+  el.appendChild(row);
+}
+function clearDataBanner(){ const el = document.getElementById('dataBanner'); if(el) el.remove(); }
+function downloadTextFile(text, filename){
+  const blob = new Blob([text], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+function showLockedDataBanner(){
+  showDataBanner(
+    'У браузері збережені дані, які дашборд не зміг прочитати. Нічого не видалено й не перезаписано — ' +
+    'збереження вимкнено, щоб їх не втратити. Завантажте ці дані у файл; відновити роботу можна через ' +
+    'Налаштування → імпорт резервної копії.',
+    [{ label:'Завантажити збережені дані', primary:true,
+       onClick:()=>downloadTextFile(lockedRaw || '', `unreadable-data-${todayISO()}.json`) }]
+  );
+}
 async function saveDB(toast){
+  if(storageLocked){
+    showToast('Збереження вимкнено: у браузері лежать дані, які не вдалося прочитати. Дивіться повідомлення вгорі.');
+    return false;
+  }
   try{
     if(storageMode==='local'){
       localStorage.setItem(STORAGE_KEY, JSON.stringify(DB));
@@ -3611,9 +3673,15 @@ async function saveDB(toast){
       throw new Error('no storage backend available');
     }
     if(toast){ showToast('Збережено'); scheduleDebouncedBackup(); }
+    return true;
   }catch(e){
     console.error('storage save failed', e);
-    if(toast) showToast('Увага: не вдалося зберегти. Завантажте резервну копію вручну.');
+    // a failed save is always worth telling about, including background ones (it used to be
+    // silent unless the caller asked for a toast)
+    showToast(e && e.name === 'QuotaExceededError'
+      ? 'Сховище браузера заповнене — зміни не збережено. Завантажте резервну копію.'
+      : 'Увага: не вдалося зберегти. Завантажте резервну копію вручну.');
+    return false;
   }
 }
 
@@ -8002,7 +8070,16 @@ function wireEvents(){
       const text = await file.text();
       const parsed = JSON.parse(text);
       validateBackupShape(parsed);
-      if(!confirm('Замінити поточні дані вмістом файлу резервної копії? Вигляд і налаштування дашборду не зміняться.')) return;
+      if(!confirm('Замінити поточні дані вмістом файлу резервної копії? Вигляд і налаштування дашборду не зміняться. ' +
+                  (storageLocked ? 'Дані, які не вдалося прочитати, спершу завантажаться у файл.'
+                                 : 'Копія поточних даних завантажиться автоматично, щоб заміну можна було скасувати.'))) return;
+      // the replacement cannot be undone from inside the page, so the data being replaced is
+      // saved to a file first (clear-all already did this; import did not)
+      if(storageLocked){
+        if(lockedRaw) downloadTextFile(lockedRaw, `unreadable-data-${todayISO()}.json`);
+      } else if(!downloadBackup(false, 'before-import')){
+        if(!confirm('Не вдалося зберегти копію поточних даних. Усе одно замінити їх?')) return;
+      }
       // form (appearance/branding) stays exactly as currently configured, regardless of
       // what the backup file does or doesn't contain — a content restore should never
       // silently revert colours, fonts, or the logo back to some earlier state
@@ -8011,6 +8088,7 @@ function wireEvents(){
       DB = migrate(parsed);
       FORM_FIELDS.forEach(f=>{ delete DB[f]; });
       Object.assign(DB, currentForm);
+      if(storageLocked){ storageLocked = false; lockedRaw = null; clearDataBanner(); }
       await saveDB(true);
       populateBroadcastFilters();
       renderAll();
@@ -8019,10 +8097,13 @@ function wireEvents(){
       applySettings();
     }catch(err){
       showToast('Не вдалося прочитати файл');
+    }finally{
+      // also on cancel — otherwise choosing the same file again fires no "change" event
+      e.target.value = '';
     }
-    e.target.value = '';
   });
   document.getElementById('settingsClearAllDataBtn').addEventListener('click', async ()=>{
+    if(storageLocked){ showToast('Спершу завантажте збережені дані (повідомлення вгорі) або відновіть їх з копії.'); return; }
     const ok = confirm(
       `Це видалить УСІ ${DB.broadcasts.length} ефірів, ${DB.contacts.length} контактів журналістів, ${DB.militaryContacts.length} контактів військових, ${DB.enemyMentions.length} ворожих згадок, всі дані соціальних мереж і ${DB.shoots.length} карток зйомок назавжди. `+
       'Перед видаленням автоматично завантажиться резервна копія на випадок помилки. Продовжити?'
