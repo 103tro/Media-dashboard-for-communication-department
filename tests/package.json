@@ -1,0 +1,12 @@
+{
+  "name": "media-dashboard-tests",
+  "private": true,
+  "description": "Автоматичні перевірки дашборда. Не входять до самого сайту.",
+  "scripts": { "test": "node run.js" },
+  "devDependencies": {
+    "playwright": "1.63.0",
+    "chart.js": "4.4.1",
+    "pptxgenjs": "3.12.0",
+    "xlsx": "0.18.5"
+  }
+}
