@@ -518,6 +518,127 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       await p.close();
     });
     await ctx.close();
+
+    // =====================================================================
+    group('11. Група каналів прямо у формі запису');
+    ctx = await newContext(browser);
+    const bc = (id, channel, extra) => ({id, date:'2026-03-05', status:'done', type:'ефір', channel, topic:'Тема '+id, ...(extra||{})});
+    const groupDb = () => JSON.stringify({
+      contacts:[],
+      broadcasts:[bc('b1','Суспільне Львів'), bc('b2','Суспільне Львів'), bc('b3','Радіо Без Групи')],
+      channelGroups:{'суспільне львів':'Суспільне', 'суспільне суми':'Суспільне', 'радіо волинь':'Волинь'},
+    });
+    const hintText = p => p.evaluate(() => document.getElementById('f_channelGroupHint').textContent);
+    await test('нове ЗМІ з новою групою: група створюється, зберігається і видна у вікні «Групи каналів»', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal());
+      await p.fill('#f_channel', 'Нове Радіо Захід');
+      assert((await hintText(p)).includes('Нове ЗМІ'), 'підказка для нового ЗМІ: ' + await hintText(p));
+      await p.fill('#f_channelGroup', 'Закарпаття');
+      assert((await hintText(p)).includes('нову групу'), 'підказка про нову групу: ' + await hintText(p));
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => DB.broadcasts.length === 4);
+      eq(await p.evaluate(() => DB.channelGroups['нове радіо захід']), 'Закарпаття');
+      eq(await p.evaluate(() => channelGroupOf('Нове Радіо Захід')), 'Закарпаття');
+      assert((await lsGet(p)).includes('Закарпаття'), 'група не потрапила у сховище');
+      await p.evaluate(() => openChannelGroupsModal());
+      assert((await p.locator('#channelGroupsRows').innerText()).includes('Нове Радіо Захід'), 'у вікні груп немає нового ЗМІ');
+      eq(await p.locator('#channelGroupsRows .group-input[data-channel="Нове Радіо Захід"]').inputValue(), 'Закарпаття', 'група в рядку цього ЗМІ у вікні груп');
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('відоме ЗМІ: група підставляється сама (будь-який регістр), для ЗМІ без групи поле порожнє', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal());
+      await p.fill('#f_channel', 'суспільне львів');
+      eq(await p.inputValue('#f_channelGroup'), 'Суспільне');
+      await p.fill('#f_channel', 'Радіо Без Групи');
+      eq(await p.inputValue('#f_channelGroup'), '');
+      assert((await hintText(p)).includes('без групи'), 'підказка: ' + await hintText(p));
+      await p.fill('#f_channel', 'Зовсім Нове');
+      eq(await p.inputValue('#f_channelGroup'), '');
+      await p.close();
+    });
+    await test('редагування запису: група каналу вже у полі, збереження без змін нічого не ламає', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal('b1'));
+      eq(await p.inputValue('#f_channelGroup'), 'Суспільне');
+      const before = await p.evaluate(() => JSON.stringify(DB.channelGroups));
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => !document.getElementById('broadcastModal').classList.contains('open'));
+      eq(await p.evaluate(() => JSON.stringify(DB.channelGroups)), before, 'групи змінились без причини');
+      await p.close();
+    });
+    await test('група, яка вже існує, береться в її написанні (без дублів «суспільне» / «Суспільне»)', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal());
+      await p.fill('#f_channel', 'Суспільне Ранок');
+      await p.fill('#f_channelGroup', '  суспільне ');
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => DB.broadcasts.length === 4);
+      eq(await p.evaluate(() => DB.channelGroups['суспільне ранок']), 'Суспільне');
+      await p.close();
+    });
+    await test('порожня група для нового ЗМІ: запис зберігається, група не призначається', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal());
+      await p.fill('#f_channel', 'Канал Без Групи Новий');
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => DB.broadcasts.length === 4);
+      eq(await p.evaluate(() => 'канал без групи новий' in DB.channelGroups), false);
+      await p.close();
+    });
+    await test('зміна групи відомого ЗМІ попереджає про всі записи каналу; очищення поля прибирає групу', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal('b1'));
+      await p.fill('#f_channelGroup', 'Львівщина');
+      const h = await hintText(p);
+      assert(h.includes('2') && h.includes('змін'), 'попередження про 2 записи: ' + h);
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => DB.channelGroups['суспільне львів'] === 'Львівщина');
+      await p.evaluate(() => openBroadcastModal('b1'));
+      await p.fill('#f_channelGroup', '');
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => !('суспільне львів' in DB.channelGroups));
+      await p.close();
+    });
+    await test('поле «Група» при фокусі показує наявні групи, клік по підказці вставляє її', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal());
+      await p.click('#f_channelGroup');
+      await p.waitForSelector('#f_channelGroupAutocomplete:not(.hidden) .multi-name-option');
+      const opts = await p.locator('#f_channelGroupAutocomplete .multi-name-option').allInnerTexts();
+      eq(opts.slice().sort(), ['Волинь','Суспільне'], 'список груп (без дублів)');
+      await p.locator('#f_channelGroupAutocomplete .multi-name-option', {hasText:'Волинь'}).dispatchEvent('mousedown');
+      eq(await p.inputValue('#f_channelGroup'), 'Волинь');
+      await p.close();
+    });
+    await test('вибір каналу з підказки теж підтягує його групу', async () => {
+      const p = await openPage(ctx, url, groupDb());
+      await p.evaluate(() => openBroadcastModal());
+      await p.fill('#f_channel', 'Суспільне Л');
+      await p.waitForSelector('#f_channelAutocomplete:not(.hidden) .multi-name-option');
+      await p.locator('#f_channelAutocomplete .multi-name-option').first().dispatchEvent('mousedown');
+      eq(await p.inputValue('#f_channelGroup'), 'Суспільне');
+      await p.close();
+    });
+    await test('ворожа назва групи: ніде не виконується (форма, підказки, вікно груп)', async () => {
+      const db = JSON.stringify({contacts:[], broadcasts:[bc('b1','Канал Х')], channelGroups:{}});
+      const p = await openPage(ctx, url, db);
+      await p.evaluate(() => openBroadcastModal('b1'));
+      await p.fill('#f_channelGroup', HOSTILE);
+      await p.evaluate(() => saveBroadcast());
+      await p.waitForFunction(() => Object.keys(DB.channelGroups).length === 1);
+      await p.evaluate(() => { openBroadcastModal(); });
+      await p.fill('#f_channel', 'Інший');
+      await p.click('#f_channelGroup');
+      await p.evaluate(() => { openChannelGroupsModal(); });
+      await p.waitForTimeout(150);
+      eq(await p.evaluate(() => window.__pwned), undefined, 'виконався код з назви групи');
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await ctx.close();
   } finally {
     await browser.close();
     srv.close();

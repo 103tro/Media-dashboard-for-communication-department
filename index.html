@@ -1219,6 +1219,12 @@ select, .select{
           <select id="f_type"><option value="ефір">Ефір / публікація</option><option value="подія">Подія / зустріч</option><option value="реклама">Рекламна кампанія</option></select>
         </div>
       </div>
+      <div class="field" id="f_channelGroupWrap" style="position:relative;">
+        <label>Група каналів <span style="font-weight:400; color:var(--ink-faint);">(необов'язково)</span></label>
+        <input type="text" id="f_channelGroup" placeholder="Оберіть наявну групу або впишіть нову" autocomplete="off">
+        <div id="f_channelGroupAutocomplete" class="multi-name-popup hidden"></div>
+        <div class="field-hint" id="f_channelGroupHint">&nbsp;</div>
+      </div>
       <div class="field" id="f_mediumWrap" style="display:none;">
         <label>Носій <span style="font-weight:400; color:var(--ink-faint);">(можна декілька)</span></label>
         <div id="f_mediumCheckboxes" style="display:flex; flex-wrap:wrap; gap:10px 16px; margin:4px 0;"></div>
@@ -4825,6 +4831,8 @@ function openBroadcastModal(id){
   document.getElementById('f_status').value = x ? x.status : 'done';
   document.getElementById('f_type').value = x ? (x.type||'ефір') : 'ефір';
   document.getElementById('f_channel').value = x ? x.channel : '';
+  channelGroupTouched = false;
+  syncChannelGroupField();
   setDateFieldValue('f_dateEnd', 'f_dateEnd_native', x ? (x.dateEnd||'') : '');
   currentMediumSelection = new Set(x && x.medium ? x.medium : []);
   const linkedEvent = x && x.eventId ? DB.broadcasts.find(b=>b.id===x.eventId) : null;
@@ -4847,6 +4855,66 @@ function openBroadcastModal(id){
 }
 function closeBroadcastModal(){ document.getElementById('broadcastModal').classList.remove('open'); editingBroadcastId=null; }
 
+/* ---- група каналів прямо у формі запису ----
+   Те саме сховище, що й у вікні «Групи каналів» (DB.channelGroups[назва каналу] = група),
+   тільки призначити групу можна одразу, коли вносиш нове ЗМІ. Поле підставляє групу відомого
+   каналу саме, доки користувач не почав сам її міняти (channelGroupTouched). */
+let channelGroupTouched = false;
+function explicitChannelGroup(channel){
+  const key = normalizeChannelKey(channel);
+  return (key && DB.channelGroups && DB.channelGroups[key]) || '';
+}
+function existingGroupNames(){
+  return Array.from(new Set(Object.values(DB.channelGroups||{}).filter(Boolean)))
+    .sort((a,b)=>a.localeCompare(b,'uk'));
+}
+// якщо така група вже є (хай і з іншим регістром) — беремо її написання, щоб не плодити дублі
+function canonicalGroupName(val){
+  const v = (val||'').trim();
+  const hit = existingGroupNames().find(g=>normalizeChannelKey(g)===normalizeChannelKey(v));
+  return hit || v;
+}
+function channelRecordCount(channel){
+  const key = normalizeChannelKey(channel);
+  return key ? DB.broadcasts.filter(b=>normalizeChannelKey(b.channel)===key).length : 0;
+}
+function syncChannelGroupField(){
+  const ch = document.getElementById('f_channel').value;
+  if(!channelGroupTouched) document.getElementById('f_channelGroup').value = explicitChannelGroup(ch);
+  refreshChannelGroupHint();
+}
+function refreshChannelGroupHint(){
+  const hint = document.getElementById('f_channelGroupHint');
+  const ch = document.getElementById('f_channel').value.trim();
+  if(!ch){ hint.textContent = ' '; return; }
+  const key = normalizeChannelKey(ch);
+  let val = document.getElementById('f_channelGroup').value.trim();
+  if(normalizeChannelKey(val)===key) val = ''; // група з тією ж назвою, що й канал, — це «без групи»
+  const current = explicitChannelGroup(ch);
+  const count = channelRecordCount(ch);
+  let msg;
+  if(!val){
+    msg = current ? `Групу «${current}» буде прибрано в усіх записів цього каналу (${count})`
+      : (count ? 'Канал без групи' : 'Нове ЗМІ — оберіть групу або впишіть нову');
+  } else if(current && normalizeChannelKey(current)===normalizeChannelKey(val)){
+    msg = 'Група цього каналу';
+  } else if(current){
+    msg = `Група зміниться для всіх записів цього каналу (${count}): «${current}» → «${canonicalGroupName(val)}»`;
+  } else {
+    const exists = existingGroupNames().some(g=>normalizeChannelKey(g)===normalizeChannelKey(val));
+    msg = exists ? `Додасться до наявної групи «${canonicalGroupName(val)}»` : `Буде створено нову групу «${val}»`;
+  }
+  hint.textContent = msg;
+}
+function applyChannelGroup(channel, groupText){
+  if(!channel) return;
+  if(!DB.channelGroups) DB.channelGroups = {};
+  const key = normalizeChannelKey(channel);
+  const val = (groupText||'').trim();
+  if(!val || normalizeChannelKey(val)===key) delete DB.channelGroups[key];
+  else DB.channelGroups[key] = canonicalGroupName(val);
+}
+
 async function saveBroadcast(){
   const payload = {
     date: getDateFieldValue('f_date'),
@@ -4868,6 +4936,7 @@ async function saveBroadcast(){
     photoLabel: document.getElementById('f_photoLink').value.trim() ? 'Лінк' : null,
   };
   if(!payload.channel && !payload.topic){ showToast('Вкажіть хоча б канал або тему'); return; }
+  applyChannelGroup(payload.channel, document.getElementById('f_channelGroup').value);
   if(editingBroadcastId){
     const idx = DB.broadcasts.findIndex(b=>b.id===editingBroadcastId);
     DB.broadcasts[idx] = {...DB.broadcasts[idx], ...payload};
@@ -7458,7 +7527,9 @@ function wireDelegatedAutocomplete(containerId, inputSelector, getOptionsFn, mul
     else if(e.key==='Escape'){ popup.classList.add('hidden'); }
   });
 }
-function wireMultiNameAutocomplete(inputId, popupId, getOptionsFn, multiValue, onPick){
+// opts.showAllWhenEmpty — показувати весь список навіть при порожньому полі (для груп:
+// треба побачити, які вони є, ще до того, як щось набрано); opts.limit — скільки пунктів
+function wireMultiNameAutocomplete(inputId, popupId, getOptionsFn, multiValue, onPick, opts){
   const input = document.getElementById(inputId);
   const popup = document.getElementById(popupId);
   if(!input || !popup) return;
@@ -7490,10 +7561,11 @@ function wireMultiNameAutocomplete(inputId, popupId, getOptionsFn, multiValue, o
   function render(){
     activeIndex = -1;
     const seg = currentSegment();
-    if(!seg){ popup.classList.add('hidden'); popup.innerHTML=''; return; }
+    const showAll = !!(opts && opts.showAllWhenEmpty);
+    if(!seg && !showAll){ popup.classList.add('hidden'); popup.innerHTML=''; return; }
     const options = getOptionsFn();
     const alreadyUsed = multiValue ? new Set(priorSegments().split(',').map(s=>s.trim().toLowerCase()).filter(Boolean)) : new Set();
-    const matches = options.filter(o=>!alreadyUsed.has(o.value.toLowerCase()) && textsMatch(seg, o.label)).slice(0,8);
+    const matches = options.filter(o=>!alreadyUsed.has(o.value.toLowerCase()) && (!seg || textsMatch(seg, o.label))).slice(0, (opts && opts.limit) || 8);
     if(!matches.length){ popup.classList.add('hidden'); popup.innerHTML=''; return; }
     popup.innerHTML = matches.map(o=>`<div class="multi-name-option" data-value="${attr(o.value)}">${esc(o.label)}</div>`).join('');
     popup.classList.remove('hidden');
@@ -7847,7 +7919,15 @@ function wireFormFieldHelpers(){
     const channels = new Set(DB.broadcasts.map(b=>b.channel).filter(Boolean));
     const media = DB.contacts.map(c=>c.media).filter(Boolean);
     return Array.from(new Set([...channels, ...media])).map(ch=>({value:ch, label:ch}));
-  }); // single value — no comma-splitting needed
+  }, false, syncChannelGroupField); // single value — no comma-splitting needed; вибір зі списку підтягує групу
+  document.getElementById('f_channel').addEventListener('input', syncChannelGroupField);
+  document.getElementById('f_channelGroup').addEventListener('input', ()=>{ channelGroupTouched = true; refreshChannelGroupHint(); });
+  wireMultiNameAutocomplete('f_channelGroup', 'f_channelGroupAutocomplete', ()=>
+    existingGroupNames().map(g=>({value:g, label:g})),
+    false,
+    ()=>{ channelGroupTouched = true; refreshChannelGroupHint(); },
+    {showAllWhenEmpty:true, limit:60}
+  ); // single value
   wireEventPicker('f_eventSearch', 'f_eventId', 'f_eventAutocomplete', ()=>editingBroadcastId);
   wireAddBroadcastToEventPicker();
   document.getElementById('f_type').addEventListener('change', ()=>{ updateEventLinkFieldsVisibility(); updateAdFieldsVisibility(); });
