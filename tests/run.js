@@ -299,7 +299,10 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       const db = {
         broadcasts:[{id:'b1', date:'2026-03-05', status:'вийшов', type:'ефір', channel:HOSTILE, topic:HOSTILE, guest:HOSTILE, journalist:HOSTILE, note:HOSTILE,
                      topicLink:HOSTILE_LINK, noteLink:HOSTILE_LINK, fileLink:HOSTILE_LINK, photoLink:HOSTILE_LINK},
-                    {id:'b2', date:HOSTILE, status:HOSTILE, type:'ефір', channel:'k', topic:'t'}],
+                    {id:'b2', date:HOSTILE, status:HOSTILE, type:'ефір', channel:'k', topic:'t'},
+                    {id:'b3', date:'2026-03-06', status:'вийшов', type:'інтерв\'ю', channel:HOSTILE, topic:HOSTILE, guest:HOSTILE, note:HOSTILE, topicLink:HOSTILE_LINK},
+                    {id:'b4', date:'2026-03-07', status:'вийшов', type:'стаття', channel:HOSTILE, topic:HOSTILE, guest:HOSTILE, note:HOSTILE, topicLink:HOSTILE_LINK},
+                    {id:'b5', date:'2026-03-08', status:'вийшов', type:HOSTILE, channel:'k', topic:'t'}],
         contacts:[{id:'c1', region:HOSTILE, media:HOSTILE, name:HOSTILE, position:HOSTILE, phone:HOSTILE, email:HOSTILE, mediaLink:HOSTILE_LINK, nameLink:HOSTILE_LINK,
                    projects:[{name:HOSTILE, link:HOSTILE_LINK}], cooperation:HOSTILE, note:HOSTILE}],
         militaryContacts:[{id:'m1', name:HOSTILE, unit:HOSTILE, subunit:HOSTILE, callsign:HOSTILE, position:HOSTILE, phone:HOSTILE, email:HOSTILE, note:HOSTILE, noteLink:HOSTILE_LINK, nameLink:HOSTILE_LINK, unitLink:HOSTILE_LINK}],
@@ -636,6 +639,125 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       await p.waitForTimeout(150);
       eq(await p.evaluate(() => window.__pwned), undefined, 'виконався код з назви групи');
       eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await ctx.close();
+
+    // =====================================================================
+    group('12. Типи матеріалів: ефір / інтерв\'ю / стаття');
+    ctx = await newContext(browser);
+    const mk = (id, type, date, extra) => ({id, date:date||'2026-03-05', status:'done', type, channel:'Канал '+id, topic:'Тема '+id, ...(extra||{})});
+    const typesDb = () => JSON.stringify({contacts:[], broadcasts:[
+      mk('e1','ефір'), mk('e2','ефір','2026-04-03'),
+      mk('i1','інтерв\'ю'),
+      mk('s1','стаття'), mk('s2','стаття','2026-04-10'), mk('s3','стаття','2026-04-11'),
+      mk('p1','подія'),
+    ]});
+    const cardValue = (p, label) => p.evaluate(l => {
+      const c = Array.from(document.querySelectorAll('#statCards .stat-card')).find(el => el.querySelector('.stat-label').textContent.trim() === l);
+      return c ? c.querySelector('.stat-value').textContent.trim() : null;
+    }, label);
+    await test('у формі п\'ять типів у правильному порядку', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => openBroadcastModal());
+      eq(await p.evaluate(() => Array.from(document.getElementById('f_type').options).map(o => o.value)), ['ефір','інтерв\'ю','стаття','подія','реклама']);
+      eq(await p.evaluate(() => document.getElementById('f_type').options[0].textContent), 'Ефір (радіо/ТБ)');
+      await p.close();
+    });
+    await test('інтерв\'ю й стаття зберігаються через форму зі своїм типом і поводяться як звичайний матеріал', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      for(const [t, name] of [['інтерв\'ю','Нове інтерв\'ю'], ['стаття','Нова стаття']]){
+        await p.evaluate(() => openBroadcastModal());
+        await p.selectOption('#f_type', t);
+        // як у звичайного ефіру: можна прив'язати до події, немає полів реклами та списку пов'язаних
+        eq(await p.evaluate(() => [document.getElementById('f_eventLinkWrap').style.display, document.getElementById('f_linkedBroadcastsWrap').style.display, document.getElementById('f_mediumWrap').style.display]), ['', 'none', 'none'], 'видимість полів для ' + t);
+        await p.fill('#f_channel', name);
+        await p.fill('#f_topic', 'Тема ' + t);
+        await p.evaluate(() => saveBroadcast());
+        await p.waitForFunction(n => DB.broadcasts.some(b => b.channel === n), name);
+      }
+      eq(await p.evaluate(() => DB.broadcasts.filter(b => /^Нов/.test(b.channel)).map(b => b.type).sort()), ['стаття','інтерв\'ю']);
+      await p.evaluate(() => openBroadcastModal(DB.broadcasts.find(b => b.channel === 'Нова стаття').id));
+      eq(await p.inputValue('#f_type'), 'стаття', 'при редагуванні тип підставляється');
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('огляд: картки рахують ефіри, інтерв\'ю й статті окремо', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      eq([await cardValue(p,'Ефірів'), await cardValue(p,'Інтерв\'ю'), await cardValue(p,'Статей'), await cardValue(p,'Подій')], ['2','1','3','1']);
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('огляд: місячний і річний графіки мають серії інтерв\'ю та статей з правильними числами', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      const ds = await p.evaluate(() => ({
+        m: monthlyChart.data.datasets.map(d => [d.label, d.data]),
+        y: yearlyChart.data.datasets.map(d => [d.label, d.data]),
+        sub: document.getElementById('chartMonthlySub').textContent,
+      }));
+      eq(ds.m, [['Ефіри',[1,1]], ['Інтерв\'ю',[1,0]], ['Статті',[1,2]], ['Події',[1,0]]], 'місячний графік');
+      eq(ds.y, [['Ефіри',[2]], ['Інтерв\'ю',[1]], ['Статті',[3]], ['Події',[1]]], 'річний графік');
+      assert(/інтерв.ю/i.test(ds.sub) && /статті/i.test(ds.sub), 'підпис під графіком: ' + ds.sub);
+      await p.close();
+    });
+    await test('огляд: коли інтерв\'ю й статей немає — графіки та підпис як раніше', async () => {
+      const db = JSON.stringify({contacts:[], broadcasts:[mk('e1','ефір'), mk('p1','подія')]});
+      const p = await openPage(ctx, url, db);
+      await p.evaluate(() => setTab('overview'));
+      eq(await p.evaluate(() => monthlyChart.data.datasets.map(d => d.label)), ['Ефіри','Події']);
+      eq(await p.evaluate(() => document.getElementById('chartMonthlySub').textContent.startsWith('Ефіри та події')), true);
+      eq([await cardValue(p,'Інтерв\'ю'), await cardValue(p,'Статей')], ['0','0'], 'картки показують 0');
+      await p.close();
+    });
+    await test('старі записи без нових типів лишаються ефірами', async () => {
+      const p = await openPage(ctx, url, JSON.stringify({contacts:[], broadcasts:[mk('o1','ефір'), {id:'o2', date:'2026-01-02', status:'done', channel:'К', topic:'Без типу'}]}));
+      eq(await p.evaluate(() => DB.broadcasts.map(b => b.type)), ['ефір','ефір']);
+      await p.close();
+    });
+    await test('вкладка «Ефіри»: фільтр за інтерв\'ю та статтею, позначка типу в рядку', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('broadcasts'));
+      eq(await p.evaluate(() => Array.from(document.getElementById('filterType').options).map(o => o.value)), ['all','ефір','інтерв\'ю','стаття','подія','реклама']);
+      for(const [t, n] of [['інтерв\'ю',1], ['стаття',3], ['ефір',2]]){
+        await p.selectOption('#filterType', t);
+        eq(await p.locator('#broadcastGroups tr[data-id]').count(), n, 'рядків для ' + t);
+      }
+      await p.selectOption('#filterType', 'стаття');
+      const note = await p.locator('#broadcastGroups tr[data-id]').first().innerText();
+      assert(note.includes('стаття'), 'у рядку немає позначки «стаття»: ' + note);
+      await p.selectOption('#filterType', 'інтерв\'ю');
+      assert((await p.locator('#broadcastGroups tr[data-id]').first().innerText()).includes('інтерв\'ю'), 'у рядку немає позначки «інтерв\'ю»');
+      await p.close();
+    });
+    // без позначки про свіжу резервну копію перед звітом спершу вивантажується нагадувальний бекап
+    const withBackupStamp = json => JSON.stringify({...JSON.parse(json), lastBackupAt:new Date().toISOString()});
+    const reportText = async (p) => {
+      const [dl] = await Promise.all([
+        p.waitForEvent('download', {timeout: 60000}),
+        p.evaluate(() => generateReport('all', '')),
+      ]);
+      const file = path.join(require('os').tmpdir(), 'types-report-' + Date.now() + '.pptx');
+      await dl.saveAs(file);
+      const out = require('child_process').execFileSync('python3', ['-I', '-c',
+        'import sys,zipfile\nz=zipfile.ZipFile(sys.argv[1])\nsys.stdout.buffer.write("\\n".join(z.read(n).decode("utf-8","ignore") for n in z.namelist() if n.startswith("ppt/charts/chart") and n.endswith(".xml")).encode())', file], {maxBuffer: 64*1024*1024}).toString('utf8');
+      fs.unlinkSync(file);
+      return out;
+    };
+    await test('звіт: у графіках є «Інтерв\'ю» та «Статті», коли такі матеріали є', async () => {
+      const p = await openPage(ctx, url, withBackupStamp(typesDb()));
+      const xml = await reportText(p);
+      assert(/Інтерв(&apos;|')ю/.test(xml), 'у графіках звіту немає «Інтерв\'ю»');
+      assert(xml.includes('Статті'), 'у графіках звіту немає «Статті»');
+      assert(xml.includes('Ефіри') && xml.includes('Події'), 'зникли «Ефіри»/«Події»');
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('звіт: без інтерв\'ю й статей у графіках їх немає', async () => {
+      const p = await openPage(ctx, url, withBackupStamp(JSON.stringify({contacts:[], broadcasts:[mk('e1','ефір'), mk('p1','подія')]})));
+      const xml = await reportText(p);
+      assert(!xml.includes('Статті') && !/Інтерв/.test(xml), 'порожні категорії потрапили у звіт');
       await p.close();
     });
     await ctx.close();

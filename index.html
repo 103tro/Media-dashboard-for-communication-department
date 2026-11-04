@@ -621,8 +621,10 @@ select, .select{
           <div class="pill" data-status="plan">Заплановано</div>
         </div>
         <select id="filterType">
-          <option value="all">Ефіри й події</option>
+          <option value="all">Усі типи</option>
           <option value="ефір">Тільки ефіри</option>
+          <option value="інтерв'ю">Тільки інтерв'ю</option>
+          <option value="стаття">Тільки статті</option>
           <option value="подія">Тільки події</option>
           <option value="реклама">Тільки рекламні кампанії</option>
         </select>
@@ -1216,7 +1218,7 @@ select, .select{
       <div class="field-row">
         <div class="field" style="position:relative;"><label>Канал / медіа / подія</label><input type="text" id="f_channel" placeholder="напр. Суспільне Львів" autocomplete="off"><div id="f_channelAutocomplete" class="multi-name-popup hidden"></div></div>
         <div class="field"><label>Тип</label>
-          <select id="f_type"><option value="ефір">Ефір / публікація</option><option value="подія">Подія / зустріч</option><option value="реклама">Рекламна кампанія</option></select>
+          <select id="f_type"><option value="ефір">Ефір (радіо/ТБ)</option><option value="інтерв'ю">Інтерв'ю (текст)</option><option value="стаття">Стаття</option><option value="подія">Подія / зустріч</option><option value="реклама">Рекламна кампанія</option></select>
         </div>
       </div>
       <div class="field" id="f_channelGroupWrap" style="position:relative;">
@@ -1878,6 +1880,30 @@ const EVENT_CHANNELS = new Set([
 ]);
 function classifyType(channel){
   return EVENT_CHANNELS.has((channel||'').trim().toLowerCase()) ? 'подія' : 'ефір';
+}
+
+// record types (DB.broadcasts[].type). One list drives the overview cards, the monthly/yearly
+// charts and the report, so a new type is added here rather than in ten places.
+//  - ефір: live radio/TV; інтерв'ю: text interview with a serviceman; стаття: general article
+//  - always: shown in charts/report even with zero records; others appear only when they have data
+// (the type <select>s in the record form and the list filter are plain markup — keep them in sync)
+const RECORD_TYPES = [
+  {key:'ефір',     plural:'Ефіри',              cardLabel:'Ефірів',             color:null,      always:true},
+  {key:"інтерв'ю", plural:"Інтерв'ю",           cardLabel:"Інтерв'ю",           color:'#2E7D5B'},
+  {key:'стаття',   plural:'Статті',             cardLabel:'Статей',             color:'#6A5ACD'},
+  {key:'подія',    plural:'Події',              cardLabel:'Подій',              color:'#1E3A5C', always:true},
+  {key:'реклама',  plural:'Рекламні кампанії',  cardLabel:'Рекламних кампаній', color:'#467886'},
+];
+// types to draw for a set of per-bucket counts: the "always" ones plus any that actually have data
+function visibleTypeSeries(buckets, countFn){
+  return RECORD_TYPES
+    .map(t=>({type:t, data:buckets.map(b=>countFn(b, t.key))}))
+    .filter(s=>s.type.always || s.data.some(c=>c>0));
+}
+// "Ефіри", "Ефіри та події", "Ефіри, інтерв'ю та події" — for chart subtitles
+function typeListPhrase(types){
+  const names = types.map((t,i)=> i===0 ? t.plural : t.plural.toLowerCase());
+  return names.length<2 ? names.join('') : names.slice(0,-1).join(', ') + ' та ' + names[names.length-1];
 }
 
 // channel/media grouping: umbrella labels for near-duplicate or related channel names,
@@ -2853,9 +2879,6 @@ async function generateReport(type, key){
 
   const guestSet = new Set(extractSpeakerNames(doneInPeriod));
   const channelSet = new Set(doneInPeriod.map(x=>x.channel).filter(Boolean));
-  const zahidCount = doneInPeriod.filter(x=>x.type==='подія').length;
-  const adCount = doneInPeriod.filter(x=>x.type==='реклама').length;
-  const efirCount = doneInPeriod.filter(x=>x.type==='ефір').length;
 
   /* ---------- Slide 1: cover ---------- */
   let slide = pptx.addSlide();
@@ -2901,14 +2924,8 @@ async function generateReport(type, key){
     slide.background = {color:C.cream};
     slide.addText('Динаміка по місяцях', {x:0.7,y:0.5,w:12,h:0.6,fontSize:26,bold:true,color:C.text,fontFace:F});
     const mLabels = monthsInPeriod.map(k=>{ const [y,m]=k.split('-'); return `${MONTHS_UA_SHORT[+m-1]} ${y.slice(2)}`; });
-    const efirByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type==='ефір').length);
-    const zahidByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type==='подія').length);
-    const adByMonth = monthsInPeriod.map(k=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type==='реклама').length);
-    const typeByMonthSeries = [
-      {name:'Ефіри', labels:mLabels, values:efirByMonth},
-      {name:'Події', labels:mLabels, values:zahidByMonth},
-    ];
-    if(adCount) typeByMonthSeries.push({name:'Рекламні кампанії', labels:mLabels, values:adByMonth});
+    const typeByMonthSeries = visibleTypeSeries(monthsInPeriod, (k, typeKey)=>doneInPeriod.filter(x=>x.date.slice(0,7)===k && x.type===typeKey).length)
+      .map(s=>({name:s.type.plural, labels:mLabels, values:s.data}));
     slide.addChart(pptx.ChartType.bar, typeByMonthSeries, {
       x:0.7, y:1.3, w:11.9, h:5.6,
       barDir:'col', barGrouping:'clustered',
@@ -2945,8 +2962,8 @@ async function generateReport(type, key){
       valAxisMinVal:0,
     });
   }
-  const typeLabels = ['Ефіри','Події'], typeValues = [efirCount, zahidCount];
-  if(adCount){ typeLabels.push('Рекламні кампанії'); typeValues.push(adCount); }
+  const typeTotals = visibleTypeSeries([doneInPeriod], (list, typeKey)=>list.filter(x=>x.type===typeKey).length);
+  const typeLabels = typeTotals.map(s=>s.type.plural), typeValues = typeTotals.map(s=>s.data[0]);
   slide.addText('Типи активності', {x:8.4,y:1.1,w:4.2,h:0.4,align:'center',fontSize:13,color:C.muted,fontFace:F});
   slide.addChart(pptx.ChartType.doughnut, [
     {name:'Тип', labels:typeLabels, values:typeValues}
@@ -4149,9 +4166,9 @@ function renderOverview(){
   const recordsScope = b.filter(inYear);
   const periodLabel = overviewYear==='all' ? 'за весь час' : `за ${overviewYear} рік`;
 
-  const efirScope = doneScope.filter(x=>x.type==='ефір').length;
-  const podiiScope = doneScope.filter(x=>x.type==='подія').length;
-  const adScope = doneScope.filter(x=>x.type==='реклама').length;
+  const scopeCount = typeKey => doneScope.filter(x=>x.type===typeKey).length;
+  const efirScope = scopeCount('ефір'), interviewScope = scopeCount("інтерв'ю"), articleScope = scopeCount('стаття');
+  const podiiScope = scopeCount('подія'), adScope = scopeCount('реклама');
   const eventsScope = b.filter(x=>x.type==='подія' && inYear(x));
   const newsworthyScope = eventsScope.filter(ev=>b.some(x=>x.eventId===ev.id)).length;
 
@@ -4189,6 +4206,8 @@ function renderOverview(){
   document.getElementById('statCards').innerHTML = `
     ${statCard('Записів', recordsScope.length, `${recordsScope.filter(x=>x.status==='done').length} вийшло · ${recordsScope.filter(x=>x.status==='plan').length} заплановано`, 'monthlyActivityPanel')}
     ${statCard('Ефірів', efirScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
+    ${statCard("Інтерв'ю", interviewScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
+    ${statCard('Статей', articleScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
     ${statCard('Подій', podiiScope, overviewYear==='all' ? 'за весь час' : overviewYear)}
     ${statCard('Цього місяця', done.filter(x=>monthKey(x.date)===curMonthKey).length, monthLabel(curMonthKey))}
     ${statCard('Заплановано', plan.length, 'у роботі, очікують')}
@@ -4220,24 +4239,16 @@ function renderOverview(){
   const keys = datedScope.length
     ? Array.from(new Set(datedScope.map(x=>x.date.slice(0,7)))).sort()
     : [curMonthKey];
-  const efirCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='ефір').length);
-  const zahidCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='подія').length);
-  const adMonthCounts = keys.map(k=>doneScope.filter(x=>monthKey(x.date)===k && x.type==='реклама').length);
-  const hasAdMonthData = adMonthCounts.some(c=>c>0);
-  document.getElementById('chartMonthlySub').textContent = hasAdMonthData
-    ? `Ефіри, події та рекламні кампанії, ${periodLabel}` : `Ефіри та події, ${periodLabel}`;
+  const monthSeries = visibleTypeSeries(keys, (k, typeKey)=>doneScope.filter(x=>monthKey(x.date)===k && x.type===typeKey).length);
+  document.getElementById('chartMonthlySub').textContent = `${typeListPhrase(monthSeries.map(s=>s.type))}, ${periodLabel}`;
   const labels = keys.map(k=>monthLabel(k));
   const PX_PER_MONTH = 58;
   const inner = document.getElementById('chartMonthlyInner');
   inner.style.width = Math.max(inner.parentElement.clientWidth || 600, keys.length * PX_PER_MONTH) + 'px';
   const ctx = document.getElementById('chartMonthly').getContext('2d');
   if(monthlyChart) monthlyChart.destroy();
-  const monthlyTotals = keys.map((k,i)=>efirCounts[i]+zahidCounts[i]+adMonthCounts[i]);
-  const monthlyDatasets = [
-    { label:'Ефіри', data:efirCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:30, stack:'s' },
-    { label:'Події', data:zahidCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:30, stack:'s' },
-  ];
-  if(hasAdMonthData) monthlyDatasets.push({ label:'Рекламні кампанії', data:adMonthCounts, backgroundColor:'#467886', borderRadius:4, maxBarThickness:30, stack:'s' });
+  const monthlyTotals = keys.map((k,i)=>monthSeries.reduce((sum,s)=>sum+s.data[i], 0));
+  const monthlyDatasets = monthSeries.map(s=>({ label:s.type.plural, data:s.data, backgroundColor:s.type.color||liveAccentColor(), borderRadius:4, maxBarThickness:30, stack:'s' }));
   monthlyChart = new Chart(ctx, {
     type:'bar',
     data:{ labels, datasets:monthlyDatasets },
@@ -4259,20 +4270,12 @@ function renderOverview(){
   // so it stays unaffected by the year picker above)
   const datedDone = done.filter(x=>x.date);
   const years = datedDone.length ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,4)))).sort() : [];
-  const efirYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='ефір').length);
-  const zahidYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='подія').length);
-  const adYearCounts = years.map(y=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type==='реклама').length);
-  const hasAdYearData = adYearCounts.some(c=>c>0);
-  document.getElementById('chartYearlySub').textContent = hasAdYearData
-    ? 'Ефіри, події та рекламні кампанії, підсумок за кожен рік' : 'Ефіри та події, підсумок за кожен рік';
+  const yearSeries = visibleTypeSeries(years, (y, typeKey)=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type===typeKey).length);
+  document.getElementById('chartYearlySub').textContent = `${typeListPhrase(yearSeries.map(s=>s.type))}, підсумок за кожен рік`;
   const yctx = document.getElementById('chartYearly').getContext('2d');
   if(yearlyChart) yearlyChart.destroy();
-  const yearlyTotals = years.map((y,i)=>efirYearCounts[i]+zahidYearCounts[i]+adYearCounts[i]);
-  const yearlyDatasets = [
-    { label:'Ефіри', data:efirYearCounts, backgroundColor:liveAccentColor(), borderRadius:4, maxBarThickness:70, stack:'s' },
-    { label:'Події', data:zahidYearCounts, backgroundColor:'#1E3A5C', borderRadius:4, maxBarThickness:70, stack:'s' },
-  ];
-  if(hasAdYearData) yearlyDatasets.push({ label:'Рекламні кампанії', data:adYearCounts, backgroundColor:'#467886', borderRadius:4, maxBarThickness:70, stack:'s' });
+  const yearlyTotals = years.map((y,i)=>yearSeries.reduce((sum,s)=>sum+s.data[i], 0));
+  const yearlyDatasets = yearSeries.map(s=>({ label:s.type.plural, data:s.data, backgroundColor:s.type.color||liveAccentColor(), borderRadius:4, maxBarThickness:70, stack:'s' }));
   yearlyChart = new Chart(yctx, {
     type:'bar',
     data:{ labels:years, datasets:yearlyDatasets },
@@ -4630,7 +4633,7 @@ function broadcastRowHtml(x){
   if(x.noteLink) materials.push(linkIcon(x.noteLink, x.note||'Додатково', iconLink));
   const isAd = x.type==='реклама';
   const dateCell = x.status==='plan' ? '—' : (isAd && x.dateEnd ? `${fmtDate(x.date)}–${fmtDate(x.dateEnd)}` : fmtDate(x.date));
-  const typeNote = x.type==='подія' ? 'подія' : (isAd ? `реклама${x.medium&&x.medium.length?' · '+x.medium.join(', '):''}` : '');
+  const typeNote = ['подія', "інтерв'ю", 'стаття'].includes(x.type) ? x.type : (isAd ? `реклама${x.medium&&x.medium.length?' · '+x.medium.join(', '):''}` : '');
   return `<tr data-id="${attr(x.id)}" class="row-openable">
       <td><input type="checkbox" class="row-select" data-select-id="${attr(x.id)}" ${selectedBroadcastIds.has(x.id)?'checked':''}></td>
       <td class="cell-date">${dateCell}</td>
