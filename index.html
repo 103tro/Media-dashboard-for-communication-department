@@ -4181,17 +4181,6 @@ function toggleOverviewType(key){
   }
   renderOverview();
 }
-// hover box shared by both Overview charts: the period, a line per drawn type, and the total
-function typeTooltip(titleFn){
-  return {
-    enabled:true,
-    callbacks:{
-      title:items=>titleFn(items[0].dataIndex),
-      label:c=>`${c.dataset.label}: ${c.parsed.y}`,
-      footer:items=>'Разом: ' + items.reduce((s,i)=>s+i.parsed.y, 0)
-    }
-  };
-}
 function renderOverview(){
   const b = DB.broadcasts;
   const done = b.filter(x=>x.status==='done');
@@ -4326,10 +4315,9 @@ function renderOverview(){
     data:{ labels, datasets:monthlyDatasets },
     options:{
       maintainAspectRatio:false,
-      interaction:{mode:'index', intersect:false},
       plugins:{
         legend:{display:false}, // the type chips above the chart are the legend
-        tooltip:typeTooltip(i=>`${MONTHS_UA_FULL[+keys[i].slice(5,7)-1]} ${keys[i].slice(0,4)}`)
+        tooltip:{enabled:false} // every number is already printed on the bars, a hover box would only repeat it
       },
       scales:{
         y:{beginAtZero:true, stacked:true, max:niceAxisMax(Math.max(...monthlyTotals, 0)), ticks:{precision:0, font:{size:11}}, grid:{color:'#EEE9DC'}},
@@ -4354,10 +4342,9 @@ function renderOverview(){
     data:{ labels:years, datasets:yearlyDatasets },
     options:{
       maintainAspectRatio:false,
-      interaction:{mode:'index', intersect:false},
       plugins:{
         legend:{display:true, position:'top', align:'end', labels:{boxWidth:12, font:{size:11.5}}},
-        tooltip:typeTooltip(i=>`${years[i]} рік`)
+        tooltip:{enabled:false}
       },
       scales:{
         y:{beginAtZero:true, stacked:true, max:niceAxisMax(Math.max(...yearlyTotals, 0)), ticks:{precision:0, font:{size:11}}, grid:{color:'#EEE9DC'}},
