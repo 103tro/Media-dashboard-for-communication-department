@@ -838,6 +838,55 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       eq(tip.footer, ['Разом: 4']);
       await p.close();
     });
+    // --- кнопки типів керують і списками «Спікери / Підрозділи / Канали» ---
+    const rankDb = () => JSON.stringify({
+      contacts: [],
+      militaryContacts: [{id:'m1', name:'Спікер Інтерв', unit:'Підрозділ І'}, {id:'m2', name:'Спікер Ефір', unit:'Підрозділ Е'}],
+      broadcasts: [
+        mk('e1','ефір',  '2026-03-05', {channel:'Канал Е', guest:'Спікер Ефір'}),
+        mk('i1','інтерв\'ю','2026-03-06', {channel:'Канал І', guest:'Спікер Інтерв'}),
+        mk('i2','інтерв\'ю','2026-04-03', {channel:'Канал І', guest:'Спікер Інтерв'}),
+        mk('s1','стаття','2026-04-10', {channel:'Канал С', guest:''}),
+      ]});
+    const rankRows = (p, id) => p.evaluate(i => Array.from(document.querySelectorAll('#' + i + ' .rank-row')).map(r => [r.querySelector('.rank-name').textContent.trim(), +r.querySelector('.rank-val').textContent]), id);
+    const rankSorted = async (p, id) => (await rankRows(p, id)).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'uk'));
+    const openRank = async () => { const p = await openPage(ctx, url, rankDb()); await p.evaluate(() => setTab('overview')); await p.selectOption('#overviewYearSelect', 'all'); return p; };
+    await test('списки спікерів, підрозділів і каналів: з усіма типами рахують усе', async () => {
+      const p = await openRank();
+      eq(await rankSorted(p, 'topGuests'), [['Спікер Інтерв',2], ['Спікер Ефір',1]]);
+      eq(await rankSorted(p, 'topUnits'), [['Підрозділ І',2], ['Підрозділ Е',1]]);
+      eq(await rankSorted(p, 'topChannels'), [['Канал І',2], ['Канал Е',1], ['Канал С',1]]);
+      eq(await p.evaluate(() => document.getElementById('topGuestsSub').textContent), 'Усі, за кількістю виступів', 'підпис без фільтра як раніше');
+      await p.close();
+    });
+    await test('лише «Інтерв\'ю»: списки рахують тільки інтерв\'ю, підпис каже про тип', async () => {
+      const p = await openRank();
+      for(const t of ['ефір','стаття','подія']) await clickChip(p, t);
+      eq(await rankRows(p, 'topGuests'), [['Спікер Інтерв',2]]);
+      eq(await rankRows(p, 'topUnits'), [['Підрозділ І',2]]);
+      eq(await rankRows(p, 'topChannels'), [['Канал І',2]]);
+      eq(await p.evaluate(() => [document.getElementById('topGuestsSub').textContent, document.getElementById('topChannelsSub').textContent, document.getElementById('topUnitsSub').textContent]),
+        ['Інтерв\'ю, усі роки, за кількістю виступів', 'Інтерв\'ю, усі роки, за кількістю матеріалів', 'Інтерв\'ю, усі роки, за кількістю матеріалів']);
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('два типи разом додаються у списках; «Усі типи» повертає все', async () => {
+      const p = await openRank();
+      for(const t of ['стаття','подія']) await clickChip(p, t);   // лишаються ефір + інтерв'ю
+      eq(await rankSorted(p, 'topChannels'), [['Канал І',2], ['Канал Е',1]]);
+      eq(await p.evaluate(() => document.getElementById('topGuestsSub').textContent.startsWith('Ефіри та інтерв')), true);
+      await clickChip(p, '__all');
+      eq(await rankSorted(p, 'topChannels'), [['Канал І',2], ['Канал Е',1], ['Канал С',1]]);
+      await p.close();
+    });
+    await test('картки «Унікальних каналів / Підрозділів» від кнопок типів не залежать', async () => {
+      const p = await openRank();
+      const before = [await cardValue(p, 'Унікальних каналів'), await cardValue(p, 'Підрозділів')];
+      for(const t of ['ефір','стаття','подія']) await clickChip(p, t);
+      eq([await cardValue(p, 'Унікальних каналів'), await cardValue(p, 'Підрозділів')], before);
+      eq(before, ['3','2']);
+      await p.close();
+    });
     await ctx.close();
   } finally {
     await browser.close();
