@@ -339,6 +339,19 @@ tbody tr:last-child td{border-bottom:none;}
 
 /* ---------- Toolbar / filters ---------- */
 .toolbar{display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px;}
+/* type switches above the Overview charts: a pressed chip = that record type is drawn.
+   Text uses the on-surface inks and the tint is mixed into --surface, so it stays readable
+   on any custom palette (the panel itself never changes colour) */
+.type-chips{display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin:0 0 8px;}
+.type-chips-label{font-size:11.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-faint); margin-right:2px;}
+.type-chip{--chip:var(--brass); font:inherit; font-size:13px; cursor:pointer; display:inline-flex; align-items:center; gap:7px;
+  min-height:34px; padding:5px 13px; border-radius:999px; border:1px solid var(--border); background:transparent; color:var(--ink-faint);}
+.type-chip i{width:10px; height:10px; border-radius:50%; border:2px solid var(--ink-faint); box-sizing:border-box; flex:none;}
+.type-chip[aria-pressed="true"]{color:var(--ink); border-color:var(--chip); background:color-mix(in srgb, var(--chip) 12%, var(--surface));}
+.type-chip[aria-pressed="true"] i{background:var(--chip); border-color:var(--chip);}
+.type-chip-all{margin-left:auto;}
+.type-chip:focus-visible{outline:2px solid var(--brass); outline-offset:2px;}
+@media (max-width:520px){ .type-chip-all{margin-left:0;} }
 .search-box{
   flex:1; min-width:220px; display:flex; align-items:center; gap:8px;
   background:var(--surface); border:1px solid var(--border); border-radius:9px; padding:9px 12px;
@@ -526,6 +539,7 @@ select, .select{
       <div class="panel" id="monthlyActivityPanel">
         <div class="panel-title">Активність по місяцях</div>
         <div class="panel-sub" id="chartMonthlySub">Ефіри та події, за весь час</div>
+        <div class="type-chips" id="overviewTypeChips" role="group" aria-label="Які типи матеріалів показувати на діаграмах"></div>
         <div class="chart-scroll-wrap">
           <div class="chart-inner" id="chartMonthlyInner">
             <canvas id="chartMonthly"></canvas>
@@ -1895,8 +1909,8 @@ const RECORD_TYPES = [
   {key:'реклама',  plural:'Рекламні кампанії',  cardLabel:'Рекламних кампаній', color:'#467886'},
 ];
 // types to draw for a set of per-bucket counts: the "always" ones plus any that actually have data
-function visibleTypeSeries(buckets, countFn){
-  return RECORD_TYPES
+function visibleTypeSeries(buckets, countFn, types){
+  return (types || RECORD_TYPES)
     .map(t=>({type:t, data:buckets.map(b=>countFn(b, t.key))}))
     .filter(s=>s.type.always || s.data.some(c=>c>0));
 }
@@ -4139,6 +4153,45 @@ let monthlyChart=null;
 let yearlyChart=null;
 let rankExpanded = {guests:false, channels:false, units:false};
 let overviewYear = null; // a year string, or 'all'
+// record types switched OFF by the chips above the Overview charts (empty = everything shown).
+// Stored as "off" rather than "on" so a type that appears later is drawn by default.
+let overviewTypesOff = new Set();
+// chips offered: the "always" types plus any type with at least one finished record, counted over
+// all years so a chip doesn't vanish when the year picker changes
+function overviewChipTypes(done){
+  return RECORD_TYPES.filter(t=>t.always || done.some(x=>x.type===t.key));
+}
+function renderOverviewTypeChips(chipTypes){
+  const allOn = chipTypes.every(t=>!overviewTypesOff.has(t.key));
+  document.getElementById('overviewTypeChips').innerHTML =
+    '<span class="type-chips-label">Показати</span>'
+    + chipTypes.map(t=>`<button type="button" class="type-chip" data-type="${attr(t.key)}" style="--chip:${safeColor(t.color) || safeColor(liveAccentColor()) || 'var(--brass)'}" aria-pressed="${!overviewTypesOff.has(t.key)}"><i></i>${esc(t.plural)}</button>`).join('')
+    + `<button type="button" class="type-chip type-chip-all" data-type="__all" aria-pressed="${allOn}">Усі типи</button>`;
+}
+// click on a chip: toggle that type (the last one left on can't be switched off, so the charts
+// never go empty by accident), or "Усі типи" to switch everything back on
+function toggleOverviewType(key){
+  if(key==='__all'){ overviewTypesOff = new Set(); }
+  else{
+    const chipTypes = overviewChipTypes(DB.broadcasts.filter(x=>x.status==='done'));
+    const turningOff = !overviewTypesOff.has(key);
+    const stillOn = chipTypes.filter(t=>t.key!==key && !overviewTypesOff.has(t.key)).length;
+    if(turningOff && stillOn===0) return;
+    if(turningOff) overviewTypesOff.add(key); else overviewTypesOff.delete(key);
+  }
+  renderOverview();
+}
+// hover box shared by both Overview charts: the period, a line per drawn type, and the total
+function typeTooltip(titleFn){
+  return {
+    enabled:true,
+    callbacks:{
+      title:items=>titleFn(items[0].dataIndex),
+      label:c=>`${c.dataset.label}: ${c.parsed.y}`,
+      footer:items=>'Разом: ' + items.reduce((s,i)=>s+i.parsed.y, 0)
+    }
+  };
+}
 function renderOverview(){
   const b = DB.broadcasts;
   const done = b.filter(x=>x.status==='done');
@@ -4239,7 +4292,12 @@ function renderOverview(){
   const keys = datedScope.length
     ? Array.from(new Set(datedScope.map(x=>x.date.slice(0,7)))).sort()
     : [curMonthKey];
-  const monthSeries = visibleTypeSeries(keys, (k, typeKey)=>doneScope.filter(x=>monthKey(x.date)===k && x.type===typeKey).length);
+  // the type chips: which record types both charts draw (see overviewChipTypes / toggleOverviewType)
+  const chipTypes = overviewChipTypes(done);
+  if(chipTypes.every(t=>overviewTypesOff.has(t.key))) overviewTypesOff = new Set(); // stale selection: nothing left to draw
+  renderOverviewTypeChips(chipTypes);
+  const activeTypes = chipTypes.filter(t=>!overviewTypesOff.has(t.key));
+  const monthSeries = visibleTypeSeries(keys, (k, typeKey)=>doneScope.filter(x=>monthKey(x.date)===k && x.type===typeKey).length, activeTypes);
   document.getElementById('chartMonthlySub').textContent = `${typeListPhrase(monthSeries.map(s=>s.type))}, ${periodLabel}`;
   const labels = keys.map(k=>monthLabel(k));
   const PX_PER_MONTH = 58;
@@ -4254,9 +4312,10 @@ function renderOverview(){
     data:{ labels, datasets:monthlyDatasets },
     options:{
       maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
       plugins:{
-        legend:{display:true, position:'top', align:'end', labels:{boxWidth:12, font:{size:11.5}}},
-        tooltip:{enabled:false}
+        legend:{display:false}, // the type chips above the chart are the legend
+        tooltip:typeTooltip(i=>`${MONTHS_UA_FULL[+keys[i].slice(5,7)-1]} ${keys[i].slice(0,4)}`)
       },
       scales:{
         y:{beginAtZero:true, stacked:true, max:niceAxisMax(Math.max(...monthlyTotals, 0)), ticks:{precision:0, font:{size:11}}, grid:{color:'#EEE9DC'}},
@@ -4270,7 +4329,7 @@ function renderOverview(){
   // so it stays unaffected by the year picker above)
   const datedDone = done.filter(x=>x.date);
   const years = datedDone.length ? Array.from(new Set(datedDone.map(x=>x.date.slice(0,4)))).sort() : [];
-  const yearSeries = visibleTypeSeries(years, (y, typeKey)=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type===typeKey).length);
+  const yearSeries = visibleTypeSeries(years, (y, typeKey)=>done.filter(x=>x.date && x.date.slice(0,4)===y && x.type===typeKey).length, activeTypes);
   document.getElementById('chartYearlySub').textContent = `${typeListPhrase(yearSeries.map(s=>s.type))}, підсумок за кожен рік`;
   const yctx = document.getElementById('chartYearly').getContext('2d');
   if(yearlyChart) yearlyChart.destroy();
@@ -4281,9 +4340,10 @@ function renderOverview(){
     data:{ labels:years, datasets:yearlyDatasets },
     options:{
       maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
       plugins:{
         legend:{display:true, position:'top', align:'end', labels:{boxWidth:12, font:{size:11.5}}},
-        tooltip:{enabled:false}
+        tooltip:typeTooltip(i=>`${years[i]} рік`)
       },
       scales:{
         y:{beginAtZero:true, stacked:true, max:niceAxisMax(Math.max(...yearlyTotals, 0)), ticks:{precision:0, font:{size:11}}, grid:{color:'#EEE9DC'}},
@@ -7787,6 +7847,10 @@ function wireSearchClearButtons(){
 function wireBroadcastsToolbarEvents(){
   document.getElementById('broadcastSearch').addEventListener('input', debounce(renderBroadcasts, 120));
   document.getElementById('overviewYearSelect').addEventListener('change', (e)=>{ overviewYear = e.target.value; renderOverview(); });
+  document.getElementById('overviewTypeChips').addEventListener('click', (e)=>{
+    const chip = e.target.closest('.type-chip');
+    if(chip) toggleOverviewType(chip.dataset.type);
+  });
   wireDateField('f_date', 'f_date_native');
   wireDateField('f_dateEnd', 'f_dateEnd_native');
   wireDateField('e_date', 'e_date_native');

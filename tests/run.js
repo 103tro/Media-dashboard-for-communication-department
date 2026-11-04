@@ -761,6 +761,84 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       await p.close();
     });
     await ctx.close();
+
+    // =====================================================================
+    group('13. Огляд: кнопки типів над діаграмами та підказка при наведенні');
+    ctx = await newContext(browser);
+    const chipState = p => p.evaluate(() => Array.from(document.querySelectorAll('#overviewTypeChips .type-chip')).map(b => [b.dataset.type, b.getAttribute('aria-pressed')]));
+    const clickChip = (p, type) => p.click(`#overviewTypeChips .type-chip[data-type="${type}"]`);
+    const chartLabels = p => p.evaluate(() => ({m: monthlyChart.data.datasets.map(d => d.label), y: yearlyChart.data.datasets.map(d => d.label)}));
+    await test('є кнопка для кожного типу, що має дані, і «Усі типи»; усе ввімкнено', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      eq(await chipState(p), [['ефір','true'], ['інтерв\'ю','true'], ['стаття','true'], ['подія','true'], ['__all','true']]);
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('тип без жодного запису (і не «завжди») кнопки не має', async () => {
+      const p = await openPage(ctx, url, JSON.stringify({contacts:[], broadcasts:[mk('e1','ефір'), mk('p1','подія')]}));
+      await p.evaluate(() => setTab('overview'));
+      eq((await chipState(p)).map(x => x[0]), ['ефір','подія','__all']);
+      await p.close();
+    });
+    await test('вимкнення «Статей» прибирає їх з обох діаграм і звужує шкалу', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      const maxBefore = await p.evaluate(() => monthlyChart.options.scales.y.max);
+      await clickChip(p, 'стаття');
+      eq(await chartLabels(p), {m:['Ефіри','Інтерв\'ю','Події'], y:['Ефіри','Інтерв\'ю','Події']});
+      eq((await chipState(p)).find(x => x[0]==='стаття')[1], 'false');
+      assert(await p.evaluate(m => monthlyChart.options.scales.y.max < m, maxBefore), 'шкала не звузилась після вимкнення статей');
+      assert(!(await p.evaluate(() => document.getElementById('chartMonthlySub').textContent)).includes('татті'), 'підпис досі згадує статті');
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('останній увімкнений тип вимкнути не можна; «Усі типи» вмикає все назад', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      for(const t of ['ефір','інтерв\'ю','стаття']) await clickChip(p, t);
+      eq(await chartLabels(p), {m:['Події'], y:['Події']});
+      await clickChip(p, 'подія');
+      eq(await chartLabels(p), {m:['Події'], y:['Події']}, 'останній тип зник');
+      await clickChip(p, '__all');
+      eq((await chartLabels(p)).m, ['Ефіри','Інтерв\'ю','Статті','Події']);
+      await p.close();
+    });
+    await test('вибір типів не скидається при зміні року', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      await clickChip(p, 'стаття');
+      await p.selectOption('#overviewYearSelect', 'all');
+      eq((await chartLabels(p)).m, ['Ефіри','Інтерв\'ю','Події']);
+      eq((await chipState(p)).find(x => x[0]==='стаття')[1], 'false');
+      await p.close();
+    });
+    await test('вимкнений тип не заважає лічильникам-карткам', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      await clickChip(p, 'стаття');
+      eq(await cardValue(p, 'Статей'), '3', 'картки не залежать від кнопок типів');
+      await p.close();
+    });
+    await test('підказка при наведенні на стовпчик: місяць, числа за типами й сума', async () => {
+      const p = await openPage(ctx, url, typesDb());
+      await p.evaluate(() => setTab('overview'));
+      await p.evaluate(() => document.getElementById('chartMonthly').scrollIntoView({block:'center'}));
+      await p.waitForTimeout(1200); // діаграма анімується при появі: позицію стовпчика міряємо, коли вона вляглась
+      const pt = await p.evaluate(() => {
+        const bar = monthlyChart.getDatasetMeta(0).data[0], r = monthlyChart.canvas.getBoundingClientRect();
+        return {x: r.left + bar.x, y: r.top + (bar.y + bar.base) / 2};
+      });
+      await p.mouse.move(pt.x - 5, pt.y - 5);
+      await p.mouse.move(pt.x, pt.y, {steps: 4});
+      await p.waitForFunction(() => monthlyChart.tooltip && monthlyChart.tooltip.opacity > 0);
+      const tip = await p.evaluate(() => ({title: monthlyChart.tooltip.title, body: monthlyChart.tooltip.body.map(b => b.lines.join('')), footer: monthlyChart.tooltip.footer}));
+      eq(tip.title, ['Березень 2026']);
+      eq(tip.body, ['Ефіри: 1', 'Інтерв\'ю: 1', 'Статті: 1', 'Події: 1']);
+      eq(tip.footer, ['Разом: 4']);
+      await p.close();
+    });
+    await ctx.close();
   } finally {
     await browser.close();
     srv.close();
