@@ -763,7 +763,7 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
     await ctx.close();
 
     // =====================================================================
-    group('13. Огляд: кнопки типів над діаграмами та підказка при наведенні');
+    group('13. Огляд: кнопки типів над діаграмами та списками');
     ctx = await newContext(browser);
     const chipState = p => p.evaluate(() => Array.from(document.querySelectorAll('#overviewTypeChips .type-chip')).map(b => [b.dataset.type, b.getAttribute('aria-pressed')]));
     const clickChip = (p, type) => p.click(`#overviewTypeChips .type-chip[data-type="${type}"]`);
@@ -820,7 +820,7 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       eq(await cardValue(p, 'Статей'), '3', 'картки не залежать від кнопок типів');
       await p.close();
     });
-    await test('підказка при наведенні на стовпчик: місяць, числа за типами й сума', async () => {
+    await test('наведення на стовпчик не показує спливної підказки (числа вже підписані на діаграмі)', async () => {
       const p = await openPage(ctx, url, typesDb());
       await p.evaluate(() => setTab('overview'));
       await p.evaluate(() => document.getElementById('chartMonthly').scrollIntoView({block:'center'}));
@@ -831,11 +831,9 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       });
       await p.mouse.move(pt.x - 5, pt.y - 5);
       await p.mouse.move(pt.x, pt.y, {steps: 4});
-      await p.waitForFunction(() => monthlyChart.tooltip && monthlyChart.tooltip.opacity > 0);
-      const tip = await p.evaluate(() => ({title: monthlyChart.tooltip.title, body: monthlyChart.tooltip.body.map(b => b.lines.join('')), footer: monthlyChart.tooltip.footer}));
-      eq(tip.title, ['Березень 2026']);
-      eq(tip.body, ['Ефіри: 1', 'Інтерв\'ю: 1', 'Статті: 1', 'Події: 1']);
-      eq(tip.footer, ['Разом: 4']);
+      await p.waitForTimeout(600);
+      eq(await p.evaluate(() => [monthlyChart.options.plugins.tooltip.enabled, yearlyChart.options.plugins.tooltip.enabled]), [false, false], 'підказку не вимкнено');
+      eq(await p.evaluate(() => monthlyChart.tooltip ? monthlyChart.tooltip.opacity : 0), 0, 'підказка з\'явилась при наведенні');
       await p.close();
     });
     // --- кнопки типів керують і списками «Спікери / Підрозділи / Канали» ---
