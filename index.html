@@ -685,6 +685,7 @@ select, .select{
       <div class="toolbar" style="margin-top:12px;">
         <label for="crosstabYearSelect" style="font-size:13px; color:var(--ink-faint);">Рік:</label>
         <select id="crosstabYearSelect"></select>
+        <input type="search" id="crosstabSearch" placeholder="Пошук: прізвище, підрозділ…" autocomplete="off" aria-label="Пошук у списку" style="min-width:200px;">
         <select id="crosstabSelect" style="min-width:280px;"></select>
         <button class="btn btn-ghost btn-sm" id="selectAllCrosstabBtn" type="button">Вибрати все</button>
       </div>
@@ -5102,13 +5103,29 @@ function populateCrosstabYearSelect(){
   sel.innerHTML = years.map(y=>`<option value="${y}"${y===crosstabYear?' selected':''}>${y}</option>`).join('')
     + `<option value="all"${crosstabYear==='all'?' selected':''}>Усі роки</option>`;
 }
+// підказка в полі пошуку залежить від того, що зараз у випадайці
+const CROSSTAB_SEARCH_HINTS = {
+  guest:'Пошук: прізвище, підрозділ…', channel:'Пошук: назва каналу…',
+  channelGroup:'Пошук: назва групи…', unit:'Пошук: назва підрозділу…',
+};
+// збіг запиту з пунктом випадайки; у режимі «За спікером» шукається ще й за підрозділом спікера
+function crosstabKeyMatches(q, key){
+  if(textsMatch(q, key)) return true;
+  if(crosstabMode!=='guest') return false;
+  const contact = findMilitaryContactByName(key);
+  return !!(contact && contact.unit && textsMatch(q, contact.unit));
+}
 function renderCrosstab(){
   populateCrosstabYearSelect();
   const idx = crosstabMode==='guest' ? buildGuestIndex()
     : crosstabMode==='channelGroup' ? buildChannelGroupIndex()
     : crosstabMode==='unit' ? buildUnitIndex()
     : buildChannelIndex();
-  const keys = Object.keys(idx).sort((a,b)=>idx[b].length-idx[a].length || a.localeCompare(b,'uk'));
+  const allKeys = Object.keys(idx).sort((a,b)=>idx[b].length-idx[a].length || a.localeCompare(b,'uk'));
+  const search = document.getElementById('crosstabSearch');
+  search.placeholder = CROSSTAB_SEARCH_HINTS[crosstabMode] || CROSSTAB_SEARCH_HINTS.guest;
+  const q = search.value.trim();
+  const keys = q ? allKeys.filter(k=>crosstabKeyMatches(q, k)) : allKeys;
   const sel = document.getElementById('crosstabSelect');
   const prev = sel.value;
   sel.innerHTML = keys.map(k=>{
@@ -5132,7 +5149,11 @@ function renderCrosstabResults(idx){
   const list = (idx[key]||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const wrap = document.getElementById('crosstabResults');
   selectedCrosstabIds.clear();
-  if(!key){ wrap.innerHTML = `<div class="empty-state">Немає даних</div>`; updateCrosstabSelectionBar(); return; }
+  if(!key){
+    const q = document.getElementById('crosstabSearch').value.trim();
+    wrap.innerHTML = q ? emptyStateHtml(`Нічого не знайдено за запитом «${q}»`) : `<div class="empty-state">Немає даних</div>`;
+    updateCrosstabSelectionBar(); return;
+  }
   const label = crosstabMode==='guest' ? 'разів на різних каналах/заходах' : (crosstabMode==='channelGroup' ? 'спікерів/матеріалів у цій групі' : crosstabMode==='unit' ? 'записів за участі цього підрозділу' : 'спікерів/матеріалів на цьому каналі');
   wrap.innerHTML = `<div class="panel-sub" style="margin:6px 0 12px;">${list.length} ${label}</div>` +
     list.map(x=>{
@@ -8212,8 +8233,15 @@ function wireCrosstabEvents(){
   document.querySelectorAll('#crosstabMode .pill').forEach(p=>{
     p.addEventListener('click', ()=>{
       document.querySelectorAll('#crosstabMode .pill').forEach(x=>x.classList.remove('active'));
-      p.classList.add('active'); crosstabMode = p.dataset.mode; renderCrosstab();
+      p.classList.add('active'); crosstabMode = p.dataset.mode;
+      document.getElementById('crosstabSearch').value = ''; // в іншому режимі інший список — старий запит не підходить
+      renderCrosstab();
     });
+  });
+  const crosstabSearch = document.getElementById('crosstabSearch');
+  crosstabSearch.addEventListener('input', renderCrosstab);
+  crosstabSearch.addEventListener('keydown', (e)=>{
+    if(e.key==='Escape' && crosstabSearch.value){ crosstabSearch.value=''; renderCrosstab(); }
   });
   document.getElementById('crosstabYearSelect').addEventListener('change', (e)=>{ crosstabYear = e.target.value; renderCrosstab(); });
   document.getElementById('manageGroupsBtn').addEventListener('click', openChannelGroupsModal);
