@@ -439,6 +439,13 @@ select, .select{
 }
 .multi-name-option{padding:8px 12px; cursor:pointer; font-size:13px;}
 .multi-name-option:hover, .multi-name-option.active{background:var(--brass-bg);}
+.multi-name-note{padding:7px 12px; font-size:12px; color:var(--ink-on-surface-faint, var(--ink-faint));}
+.combo-box input[type="text"]{
+  padding:8px 30px 8px 12px; border-radius:9px; border:1px solid var(--border); background:var(--surface);
+  font-size:12.5px; color:var(--ink-on-surface); font-family:inherit; cursor:pointer; box-sizing:border-box;
+}
+.combo-box input[type="text"]:focus{outline:2px solid var(--brass); outline-offset:1px; cursor:text;}
+.combo-arrow{position:absolute; right:12px; top:50%; transform:translateY(-50%); pointer-events:none; font-size:12px; color:var(--ink-on-surface-faint, var(--ink-faint));}
 .guest-link:hover{color:var(--brass); border-bottom-color:var(--brass);}
 .region-lviv{background:var(--navy-bg); color:var(--navy);}
 .region-ua{background:var(--brass-bg); color:var(--brass);}
@@ -685,8 +692,12 @@ select, .select{
       <div class="toolbar" style="margin-top:12px;">
         <label for="crosstabYearSelect" style="font-size:13px; color:var(--ink-faint);">Рік:</label>
         <select id="crosstabYearSelect"></select>
-        <input type="search" id="crosstabSearch" placeholder="Пошук: прізвище, підрозділ…" autocomplete="off" aria-label="Пошук у списку" style="min-width:200px;">
-        <select id="crosstabSelect" style="min-width:280px;"></select>
+        <div class="combo-box" style="position:relative; min-width:320px; flex:0 1 380px;">
+          <input type="text" id="crosstabSearch" role="combobox" aria-autocomplete="list" aria-controls="crosstabPopup" aria-label="Обрати зі списку або знайти" autocomplete="off" spellcheck="false" style="width:100%;">
+          <span class="combo-arrow" aria-hidden="true">▾</span>
+          <input type="hidden" id="crosstabSelect">
+          <div id="crosstabPopup" class="multi-name-popup hidden" style="max-height:340px;"></div>
+        </div>
         <button class="btn btn-ghost btn-sm" id="selectAllCrosstabBtn" type="button">Вибрати все</button>
       </div>
       <div class="selection-bar hidden" id="crosstabSelectionBar" style="margin-bottom:0;">
@@ -5103,38 +5114,81 @@ function populateCrosstabYearSelect(){
   sel.innerHTML = years.map(y=>`<option value="${y}"${y===crosstabYear?' selected':''}>${y}</option>`).join('')
     + `<option value="all"${crosstabYear==='all'?' selected':''}>Усі роки</option>`;
 }
-// підказка в полі пошуку залежить від того, що зараз у випадайці
+// підказка у списку залежить від того, що зараз обрано режимом
 const CROSSTAB_SEARCH_HINTS = {
-  guest:'Пошук: прізвище, підрозділ…', channel:'Пошук: назва каналу…',
-  channelGroup:'Пошук: назва групи…', unit:'Пошук: назва підрозділу…',
+  guest:'Введіть, щоб знайти: прізвище або підрозділ', channel:'Введіть, щоб знайти: назву каналу',
+  channelGroup:'Введіть, щоб знайти: назву групи', unit:'Введіть, щоб знайти: назву підрозділу',
 };
-// збіг запиту з пунктом випадайки; у режимі «За спікером» шукається ще й за підрозділом спікера
+// збіг запиту з пунктом списку; у режимі «За спікером» шукається ще й за підрозділом спікера
 function crosstabKeyMatches(q, key){
   if(textsMatch(q, key)) return true;
   if(crosstabMode!=='guest') return false;
   const contact = findMilitaryContactByName(key);
   return !!(contact && contact.unit && textsMatch(q, contact.unit));
 }
+// Єдине поле «обрати зі списку або знайти»: `#crosstabSelect` (прихований) тримає обраний пункт,
+// `#crosstabSearch` показує його підпис або те, що користувач набирає, `#crosstabPopup` — список.
+let crosstabKeys = [];       // усі пункти поточного режиму та року, найчастіші зверху
+let crosstabLabels = {};     // пункт → підпис «Назва (кількість)»
+let crosstabIdx = {};        // пункт → записи
+let crosstabTyped = false;   // true, поки користувач набирає (інакше в полі підпис обраного)
+let crosstabActive = -1;     // підсвічений пункт у списку
 function renderCrosstab(){
   populateCrosstabYearSelect();
-  const idx = crosstabMode==='guest' ? buildGuestIndex()
+  crosstabIdx = crosstabMode==='guest' ? buildGuestIndex()
     : crosstabMode==='channelGroup' ? buildChannelGroupIndex()
     : crosstabMode==='unit' ? buildUnitIndex()
     : buildChannelIndex();
-  const allKeys = Object.keys(idx).sort((a,b)=>idx[b].length-idx[a].length || a.localeCompare(b,'uk'));
-  const search = document.getElementById('crosstabSearch');
-  search.placeholder = CROSSTAB_SEARCH_HINTS[crosstabMode] || CROSSTAB_SEARCH_HINTS.guest;
-  const q = search.value.trim();
-  const keys = q ? allKeys.filter(k=>crosstabKeyMatches(q, k)) : allKeys;
-  const sel = document.getElementById('crosstabSelect');
-  const prev = sel.value;
-  sel.innerHTML = keys.map(k=>{
+  const idx = crosstabIdx;
+  crosstabKeys = Object.keys(idx).sort((a,b)=>idx[b].length-idx[a].length || a.localeCompare(b,'uk'));
+  crosstabLabels = {};
+  crosstabKeys.forEach(k=>{
     const unresolved = crosstabMode==='guest' && !findMilitaryContactByName(k) && !findJournalistByName(k);
-    return `<option value="${attr(k)}">${esc(k)} (${idx[k].length})${unresolved?' · не в контактах':''}</option>`;
-  }).join('');
-  if(keys.includes(prev)) sel.value = prev;
+    crosstabLabels[k] = `${k} (${idx[k].length})${unresolved?' · не в контактах':''}`;
+  });
+  const hidden = document.getElementById('crosstabSelect');
+  if(!crosstabKeys.includes(hidden.value)) hidden.value = crosstabKeys[0] || '';
+  syncCrosstabInput();
   renderCrosstabResults(idx);
-  sel.onchange = ()=>renderCrosstabResults(idx);
+}
+function syncCrosstabInput(){
+  crosstabTyped = false;
+  const key = document.getElementById('crosstabSelect').value;
+  document.getElementById('crosstabSearch').value = key ? (crosstabLabels[key] || key) : '';
+}
+function crosstabPopupMatches(){
+  const q = crosstabTyped ? document.getElementById('crosstabSearch').value.trim() : '';
+  return q ? crosstabKeys.filter(k=>crosstabKeyMatches(q, k)) : crosstabKeys;
+}
+function openCrosstabPopup(){
+  const popup = document.getElementById('crosstabPopup');
+  const matches = crosstabPopupMatches();
+  const cur = document.getElementById('crosstabSelect').value;
+  // після набору підсвічується перший збіг (Enter бере його); без набору — той, що обраний зараз
+  crosstabActive = crosstabTyped ? (matches.length ? 0 : -1) : matches.indexOf(cur);
+  const note = `<div class="multi-name-note">${esc(CROSSTAB_SEARCH_HINTS[crosstabMode] || CROSSTAB_SEARCH_HINTS.guest)}</div>`;
+  popup.innerHTML = note + (matches.length
+    ? matches.map((k,i)=>`<div class="multi-name-option${i===crosstabActive?' active':''}" data-key="${attr(k)}">${esc(crosstabLabels[k])}</div>`).join('')
+    : `<div class="multi-name-note">${crosstabKeys.length ? 'Нічого не знайдено' : 'Немає даних'}</div>`);
+  popup.classList.remove('hidden');
+  const activeEl = popup.querySelector('.multi-name-option.active');
+  if(activeEl) activeEl.scrollIntoView({block:'nearest'});
+}
+function closeCrosstabPopup(){
+  document.getElementById('crosstabPopup').classList.add('hidden');
+}
+function pickCrosstabKey(key){
+  document.getElementById('crosstabSelect').value = key;
+  closeCrosstabPopup();
+  syncCrosstabInput();
+  document.getElementById('crosstabSearch').blur();
+  renderCrosstabResults(crosstabIdx);
+}
+function highlightCrosstabOption(){
+  const popup = document.getElementById('crosstabPopup');
+  popup.querySelectorAll('.multi-name-option').forEach((el,i)=>el.classList.toggle('active', i===crosstabActive));
+  const activeEl = popup.querySelector('.multi-name-option.active');
+  if(activeEl) activeEl.scrollIntoView({block:'nearest'});
 }
 let selectedCrosstabIds = new Set();
 function updateCrosstabSelectionBar(){
@@ -5149,11 +5203,7 @@ function renderCrosstabResults(idx){
   const list = (idx[key]||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
   const wrap = document.getElementById('crosstabResults');
   selectedCrosstabIds.clear();
-  if(!key){
-    const q = document.getElementById('crosstabSearch').value.trim();
-    wrap.innerHTML = q ? emptyStateHtml(`Нічого не знайдено за запитом «${q}»`) : `<div class="empty-state">Немає даних</div>`;
-    updateCrosstabSelectionBar(); return;
-  }
+  if(!key){ wrap.innerHTML = `<div class="empty-state">Немає даних</div>`; updateCrosstabSelectionBar(); return; }
   const label = crosstabMode==='guest' ? 'разів на різних каналах/заходах' : (crosstabMode==='channelGroup' ? 'спікерів/матеріалів у цій групі' : crosstabMode==='unit' ? 'записів за участі цього підрозділу' : 'спікерів/матеріалів на цьому каналі');
   wrap.innerHTML = `<div class="panel-sub" style="margin:6px 0 12px;">${list.length} ${label}</div>` +
     list.map(x=>{
@@ -8234,14 +8284,41 @@ function wireCrosstabEvents(){
     p.addEventListener('click', ()=>{
       document.querySelectorAll('#crosstabMode .pill').forEach(x=>x.classList.remove('active'));
       p.classList.add('active'); crosstabMode = p.dataset.mode;
-      document.getElementById('crosstabSearch').value = ''; // в іншому режимі інший список — старий запит не підходить
+      document.getElementById('crosstabSelect').value = ''; // в іншому режимі інший список — обираємо спочатку
+      closeCrosstabPopup();
       renderCrosstab();
     });
   });
-  const crosstabSearch = document.getElementById('crosstabSearch');
-  crosstabSearch.addEventListener('input', renderCrosstab);
-  crosstabSearch.addEventListener('keydown', (e)=>{
-    if(e.key==='Escape' && crosstabSearch.value){ crosstabSearch.value=''; renderCrosstab(); }
+  const combo = document.getElementById('crosstabSearch');
+  const comboPopup = document.getElementById('crosstabPopup');
+  combo.addEventListener('focus', ()=>{ combo.select(); crosstabTyped = false; openCrosstabPopup(); });
+  combo.addEventListener('click', ()=>{ if(comboPopup.classList.contains('hidden')) openCrosstabPopup(); });
+  combo.addEventListener('input', ()=>{ crosstabTyped = true; openCrosstabPopup(); });
+  combo.addEventListener('blur', ()=>{ closeCrosstabPopup(); syncCrosstabInput(); });
+  // клік по списку (і по його смузі прокрутки) не має забирати фокус із поля — інакше список закриється до вибору
+  comboPopup.addEventListener('mousedown', (e)=>{
+    e.preventDefault();
+    const opt = e.target.closest('.multi-name-option');
+    if(opt) pickCrosstabKey(opt.dataset.key);
+  });
+  combo.addEventListener('keydown', (e)=>{
+    const open = !comboPopup.classList.contains('hidden');
+    const count = comboPopup.querySelectorAll('.multi-name-option').length;
+    if(e.key==='ArrowDown' || e.key==='ArrowUp'){
+      e.preventDefault();
+      if(!open){ openCrosstabPopup(); return; }
+      if(!count) return;
+      crosstabActive = e.key==='ArrowDown' ? (crosstabActive+1) % count : (crosstabActive-1+count) % count;
+      highlightCrosstabOption();
+    } else if(e.key==='Enter'){
+      if(open && crosstabActive>=0){
+        e.preventDefault();
+        const opt = comboPopup.querySelectorAll('.multi-name-option')[crosstabActive];
+        if(opt) pickCrosstabKey(opt.dataset.key);
+      }
+    } else if(e.key==='Escape'){
+      if(open){ e.preventDefault(); closeCrosstabPopup(); syncCrosstabInput(); combo.blur(); }
+    }
   });
   document.getElementById('crosstabYearSelect').addEventListener('change', (e)=>{ crosstabYear = e.target.value; renderCrosstab(); });
   document.getElementById('manageGroupsBtn').addEventListener('click', openChannelGroupsModal);
