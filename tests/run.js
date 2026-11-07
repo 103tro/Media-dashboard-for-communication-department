@@ -885,6 +885,88 @@ const HOSTILE_LINK = 'javascript:window.__pwned=1';
       eq(before, ['3','2']);
       await p.close();
     });
+    // ---------- 14. Хто де був: пошук у випадайці ----------
+    group('14. Хто де був: пошук у випадайці');
+    const searchDb = () => JSON.stringify({
+      contacts: [],
+      militaryContacts: [{id:'m1', name:'Шевченко Тарас', unit:'Чорний стриж'}, {id:'m2', name:'Франко Іван', unit:'Сокіл'}, {id:'m3', name:'Українка Леся', unit:'Чорний стриж'}],
+      broadcasts: [
+        mk('a1','ефір','2026-03-05', {channel:'Канал А', guest:'Франко Іван'}),
+        mk('a2','ефір','2026-03-06', {channel:'Канал Б', guest:'Франко Іван'}),
+        mk('a3','ефір','2026-03-07', {channel:'Канал А', guest:'Шевченко Тарас'}),
+        mk('a4','ефір','2026-03-08', {channel:'Інший канал', guest:'Українка Леся'}),
+      ]});
+    const xOpts = p => p.evaluate(() => Array.from(document.querySelectorAll('#crosstabSelect option')).map(o => o.value));
+    const xCur = p => p.inputValue('#crosstabSelect');
+    const openX = async () => { const p = await openPage(ctx, url, searchDb()); await p.evaluate(() => { setTab('crosstab'); }); await p.selectOption('#crosstabYearSelect', 'all'); return p; };
+    await test('без пошуку у списку всі спікери, найчастіші зверху', async () => {
+      const p = await openX();
+      eq((await xOpts(p))[0], 'Франко Іван');
+      eq((await xOpts(p)).length, 3);
+      await p.close();
+    });
+    await test('пошук за початком прізвища лишає у випадайці лише збіг і одразу показує його записи', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'шевч');
+      eq(await xOpts(p), ['Шевченко Тарас']);
+      eq(await xCur(p), 'Шевченко Тарас');
+      await p.waitForFunction(() => document.querySelectorAll('#crosstabResults .item-select').length === 1);
+      await p.close();
+    });
+    await test('пошук працює з будь-якого місця слова і без урахування регістру', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'ТАРАС');
+      eq(await xOpts(p), ['Шевченко Тарас']);
+      await p.close();
+    });
+    await test('у режимі «За спікером» можна знайти й за назвою підрозділу', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'стриж');
+      eq((await xOpts(p)).sort(), ['Українка Леся', 'Шевченко Тарас']);
+      await p.close();
+    });
+    await test('у режимі «За підрозділом» шукається назва підрозділу', async () => {
+      const p = await openX();
+      await p.click('#crosstabMode .pill[data-mode="unit"]');
+      await p.fill('#crosstabSearch', 'сок');
+      eq(await xOpts(p), ['Сокіл']);
+      await p.close();
+    });
+    await test('нічого не знайдено — пояснення замість порожнього списку, помилок нема', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'zzzяяя');
+      eq(await xOpts(p), []);
+      assert((await p.innerText('#crosstabResults')).includes('Нічого не знайдено'), 'немає пояснення');
+      eq(p.errors, [], 'помилки на сторінці');
+      await p.close();
+    });
+    await test('очищення пошуку повертає весь список; перемикання режиму очищає поле', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'шевч');
+      await p.fill('#crosstabSearch', '');
+      eq((await xOpts(p)).length, 3);
+      await p.fill('#crosstabSearch', 'шевч');
+      await p.click('#crosstabMode .pill[data-mode="channel"]');
+      eq(await p.inputValue('#crosstabSearch'), '');
+      eq((await xOpts(p)).length, 3);
+      await p.close();
+    });
+    await test('зміна року не скидає пошук; обраний запис лишається, якщо ще підходить', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'франко');
+      await p.selectOption('#crosstabYearSelect', '2026');
+      eq(await p.inputValue('#crosstabSearch'), 'франко');
+      eq(await xOpts(p), ['Франко Іван']);
+      await p.close();
+    });
+    await test('Escape у полі пошуку очищає його', async () => {
+      const p = await openX();
+      await p.fill('#crosstabSearch', 'шевч');
+      await p.press('#crosstabSearch', 'Escape');
+      eq(await p.inputValue('#crosstabSearch'), '');
+      eq((await xOpts(p)).length, 3);
+      await p.close();
+    });
     await ctx.close();
   } finally {
     await browser.close();
