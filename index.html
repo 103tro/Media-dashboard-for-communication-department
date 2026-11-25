@@ -68,8 +68,8 @@ if (typeof XLSX === 'undefined') {
   --brass-light:#C99A45;
   --brass-bg:#F6ECD8;
   --on-brass:#FFFFFF;
-  --navy:#454938;
-  --navy-light:rgb(116,118,106);
+  --navy:#444A38;
+  --navy-light:rgb(115,119,106);
   --navy-bg:rgb(236,237,235);
   --on-navy:#EDEFF3;
   --on-navy-soft:#C9CEDA;
@@ -1065,7 +1065,7 @@ select, .select{
           </div>
           <div class="field">
             <label>Колір бічної панелі</label>
-            <input type="color" id="settingsSidebarColor" value="#454938" style="height:40px; padding:4px; cursor:pointer;">
+            <input type="color" id="settingsSidebarColor" value="#444A38" style="height:40px; padding:4px; cursor:pointer;">
           </div>
         </div>
         <div class="field-row">
@@ -2162,7 +2162,7 @@ function regenerateFavicon(bgColor){
   const img = document.getElementById('sidebarLogoImg');
   const favicon = document.getElementById('faviconLink');
   if(!img || !favicon) return;
-  bgColor = bgColor || (DB && DB.settings && DB.settings.sidebarColor) || '#454938';
+  bgColor = bgColor || (DB && DB.settings && DB.settings.sidebarColor) || '#444A38';
   const logoSrc = (DB && DB.customLogo) ? DB.customLogo : img.dataset.defaultSrc;
   const tempImg = new Image();
   tempImg.onload = () => {
@@ -2336,7 +2336,7 @@ function applySettings(){
   document.getElementById('appReleaseDateLabel').textContent = fmtDate(APP_RELEASE_DATE);
   const s = DB.settings || {};
   applyAccentColor(s.accentColor || '#A2762C');
-  applySidebarColor(s.sidebarColor || '#454938');
+  applySidebarColor(s.sidebarColor || '#444A38');
   applyBgColor(s.bgColor || '#F5F3ED');
   applyFontColor(s.fontColor || '#22252A', s.bgColor || '#F5F3ED');
   applyFontChoice(s.fontChoice || 'uaf');
@@ -2345,7 +2345,7 @@ function applySettings(){
 function renderSettings(){
   const s = DB.settings || {};
   document.getElementById('settingsAccentColor').value = s.accentColor || '#A2762C';
-  document.getElementById('settingsSidebarColor').value = s.sidebarColor || '#454938';
+  document.getElementById('settingsSidebarColor').value = s.sidebarColor || '#444A38';
   document.getElementById('settingsBgColor').value = s.bgColor || '#F5F3ED';
   document.getElementById('settingsFontColor').value = s.fontColor || '#22252A';
   document.getElementById('settingsFontChoice').value = s.fontChoice || 'uaf';
@@ -2647,7 +2647,7 @@ function getReportColors(){
   // falling back to the same defaults the dashboard itself uses when nothing's customized
   const s = (typeof DB !== 'undefined' && DB && DB.settings) || {};
   const gold = (s.accentColor || '#A2762C').replace('#','').toUpperCase();
-  const dark = (s.sidebarColor || '#454938').replace('#','').toUpperCase();
+  const dark = (s.sidebarColor || '#444A38').replace('#','').toUpperCase();
   const cream = (s.bgColor || '#F5F3ED').replace('#','').toUpperCase();
   const text = (s.fontColor || '#22252A').replace('#','').toUpperCase();
   return {
